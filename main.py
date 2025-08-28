@@ -2,6 +2,7 @@ import requests
 import json
 import os
 from google_play_scraper import app
+from datetime import datetime
 
 # ========== CONFIG ==========
 def load_apps_config():
@@ -52,18 +53,15 @@ def get_ios_info(app_id):
         res = requests.get(url, timeout=10).json()
         if "results" in res and len(res["results"]) > 0:
             app_data = res["results"][0]
-            release_date = app_data.get("currentVersionReleaseDate")
-            if release_date:
-                # convert "2024-08-12T10:15:23Z" -> "12-08-2024"
-                release_date = datetime.fromisoformat(release_date.replace("Z", "")).strftime("%d-%m-%Y")
             return {
                 "name": app_data["trackName"],
                 "version": app_data["version"],
                 "url": app_data["trackViewUrl"],
                 "icon": app_data["artworkUrl100"],
                 "releaseNotes": app_data.get("releaseNotes", "Không có ghi chú"),
-                "releaseDate": release_date or "Không rõ",
+                "releaseDate": format_date(app_data.get("currentVersionReleaseDate")),
                 "developer": app_data.get("artistName", "Unknown"),
+                "developerUrl": app_data.get("artistViewUrl", app_data["trackViewUrl"]),  # link dev riêng
             }
         return None
     except Exception as e:
@@ -73,18 +71,15 @@ def get_ios_info(app_id):
 def get_android_info(pkg_name):
     try:
         result = app(pkg_name)
-        release_date = result.get("updated")
-        if release_date:
-            # datetime.date -> string "DD-MM-YYYY"
-            release_date = release_date.strftime("%d-%m-%Y")
         return {
             "name": result["title"],
             "version": result["version"],
             "url": result["url"],
             "icon": result["icon"],
             "releaseNotes": result.get("recentChanges", "Không có ghi chú"),
-            "releaseDate": release_date or "Không rõ",
+            "releaseDate": format_date(result.get("updated")),
             "developer": result.get("developer", "Unknown"),
+            "developerUrl": f"https://play.google.com/store/apps/dev?id={result.get('developerId')}" if result.get("developerId") else result["url"],
         }
     except Exception as e:
         print(f"❌ Lỗi khi lấy thông tin Android app {pkg_name}: {e}")
@@ -99,8 +94,8 @@ def send_discord_embed(app_name, platform, old_version, info):
                 f"**Platform:** {platform}\n"
                 f"**Old Version:** `{old_version or 'N/A'}`\n"
                 f"**New Version:** `{info['version']}`\n\n"
-                f"**Release Date:** {info.get('releaseDate', 'Không rõ')}\n\n"
-                f"**Developer:** [{info.get('publisher','Unknown')}]({info['url']})\n\n"
+                f"**Release Date:** {info.get('releaseDate', 'Không rõ')}\n"
+                f"**Developer:** [{info.get('developer','Unknown')}]({info.get('developerUrl', 'url')})\n"
                 f"**Release Notes:**\n{info['releaseNotes'][:1000]}"
             ),
             "color": 0x1abc9c,
@@ -113,6 +108,34 @@ def send_discord_embed(app_name, platform, old_version, info):
         print(f"✅ Đã gửi thông báo Discord cho {app_name}")
     except Exception as e:
         print(f"❌ Lỗi khi gửi Discord: {e}")
+
+def format_date(value):
+    """Chuẩn hóa các kiểu date thành DD-MM-YYYY"""
+    if not value:
+        return "Không rõ"
+
+    # Nếu là datetime hoặc date object
+    if hasattr(value, "strftime"):
+        return value.strftime("%d-%m-%Y")
+
+    # Nếu là int (timestamp ms hoặc s)
+    if isinstance(value, int):
+        # Nếu lớn hơn năm 3000 thì chắc chắn ms
+        ts = value / 1000 if value > 32503680000 else value
+        return datetime.fromtimestamp(ts).strftime("%d-%m-%Y")
+
+    # Nếu là string ISO (iOS thường có dạng 2024-08-12T10:15:23Z)
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "")).strftime("%d-%m-%Y")
+        except Exception:
+            # Nếu dạng "August 25, 2025"
+            try:
+                return datetime.strptime(value, "%B %d, %Y").strftime("%d-%m-%Y")
+            except Exception:
+                return value  # fallback giữ nguyên
+
+    return str(value)
 
 def main():
     print("🔄 Bắt đầu kiểm tra cập nhật...")
