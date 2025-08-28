@@ -2,12 +2,18 @@ name: Check App Updates
 
 on:
   schedule:
-    - cron: "0 * * * *" # chạy mỗi giờ (UTC)
+    - cron: "0 2 * * *" # chạy mỗi giờ (UTC)
   workflow_dispatch: # cho phép bấm nút "Run workflow" thủ công
 
 jobs:
   build:
+    env:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      APPS_CONFIG: ${{ vars.APPS_CONFIG }}
     runs-on: ubuntu-latest
+    permissions:
+      actions: write # Cho phép job này quản lý cache
+      contents: read # Quyền đọc repo (mặc định)
 
     steps:
       - uses: actions/checkout@v3
@@ -20,5 +26,39 @@ jobs:
       - name: Install dependencies
         run: pip install google-play-scraper requests
 
+      - name: Restore state from cache
+        uses: actions/cache@v3
+        with:
+          path: last_versions.json
+          key: app-versions-${{ github.run_number }}
+          restore-keys: |
+            app-versions-
+
       - name: Run script
         run: python main.py
+
+      - name: Show current time (UTC & VN)
+        run: |
+          echo "⏰ Current UTC time: $(date -u '+%Y-%m-%d %H:%M:%S')"
+          echo "⏰ Current VN time : $(TZ=Asia/Ho_Chi_Minh date '+%Y-%m-%d %H:%M:%S')"
+
+      - name: Show state file
+        run: |
+          echo "===== last_versions.json ====="
+          cat last_versions.json || echo "⚠️ File không tồn tại"
+
+      - name: Save state to cache
+        uses: actions/cache/save@v3
+        with:
+          path: last_versions.json
+          key: app-versions-${{ github.run_number }}
+
+      - name: Cleanup old caches
+        run: |
+          echo "🔄 Cleaning up old caches..."
+          gh api --method GET repos/${{ github.repository }}/actions/caches \
+            -F key=app-versions- \
+            | jq -r '.actions_caches | .[2:] | .[].id' \
+            | xargs -I{} gh api --method DELETE repos/${{ github.repository }}/actions/caches/{} || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
