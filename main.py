@@ -93,9 +93,10 @@ def send_discord_embed(app_name, platform, old_version, info):
             "description": (
                 f"**Platform:** {platform}\n"
                 f"**Old Version:** `{old_version or 'N/A'}`\n"
-                f"**New Version:** `{info['version']}`\n\n"
+                f"**New Version:** `{info['version']}`\n"
                 f"**Release Date:** {info.get('releaseDate', 'Không rõ')}\n"
                 f"**Developer:** [{info.get('developer','Unknown')}]({info.get('developerUrl', 'url')})\n"
+                f"\n"
                 f"**Release Notes:**\n{info['releaseNotes'][:1000]}"
             ),
             "color": 0x1abc9c,
