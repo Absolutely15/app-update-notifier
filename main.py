@@ -62,6 +62,7 @@ def get_ios_info(app_id):
                 "releaseDate": format_date(app_data.get("currentVersionReleaseDate")),
                 "developer": app_data.get("artistName", "Unknown"),
                 "developerUrl": app_data.get("artistViewUrl", app_data["trackViewUrl"]),  # link dev riêng
+                "genres": ", ".join(app_data.get("genres", [])) or app_data.get("primaryGenreName", "Unknown"),
             }
         return None
     except Exception as e:
@@ -80,6 +81,7 @@ def get_android_info(pkg_name):
             "releaseDate": format_date(result.get("updated")),
             "developer": result.get("developer", "Unknown"),
             "developerUrl": f"https://play.google.com/store/apps/dev?id={result.get('developerId')}" if result.get("developerId") else result["url"],
+            "genres": result.get("genre", "Unknown"),
         }
     except Exception as e:
         print(f"❌ Lỗi khi lấy thông tin Android app {pkg_name}: {e}")
@@ -96,6 +98,7 @@ def send_discord_embed(app_name, platform, old_version, info):
                 f"**New Version:** `{info['version']}`\n"
                 f"**Release Date:** {info.get('releaseDate', 'Không rõ')}\n"
                 f"**Developer:** [{info.get('developer','Unknown')}]({info.get('developerUrl', 'url')})\n"
+                f"**Genres:** {info.get('genres','Unknown')}\n"
                 f"\n"
                 f"**Release Notes:**\n{info['releaseNotes'][:1000]}"
             ),
@@ -158,7 +161,7 @@ def main():
                 state[app_data["id"]] = info["version"]
                 has_update = True
             else:
-                print(f"   ✅ {info['name']} (Android) không có cập nhật")
+                print(f"   ✅ {info['name']} (iOS) không có cập nhật")
 
     print(f"🤖 Đang kiểm tra Android apps...")
     for app_data in APPS.get("android", []):
@@ -172,7 +175,7 @@ def main():
                 state[app_data["id"]] = info["version"]
                 has_update = True
             else:
-                print(f"   ✅ {info['name']} (iOS) không có cập nhật")
+                print(f"   ✅ {info['name']} (Android) không có cập nhật")
 
     if has_update:
         save_state(state)
