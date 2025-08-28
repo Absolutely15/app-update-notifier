@@ -63,6 +63,7 @@ def get_ios_info(app_id):
                 "developer": app_data.get("artistName", "Unknown"),
                 "developerUrl": app_data.get("artistViewUrl", app_data["trackViewUrl"]),  # link dev riêng
                 "genres": ", ".join(app_data.get("genres", [])) or app_data.get("primaryGenreName", "Unknown"),
+                "screenshot": (app_data.get("screenshotUrls") or [None])[0],
             }
         return None
     except Exception as e:
@@ -82,6 +83,7 @@ def get_android_info(pkg_name):
             "developer": result.get("developer", "Unknown"),
             "developerUrl": f"https://play.google.com/store/apps/dev?id={result.get('developerId')}" if result.get("developerId") else result["url"],
             "genres": result.get("genre", "Unknown"),
+            "screenshot": (result.get("screenshots") or [None])[0],
         }
     except Exception as e:
         print(f"❌ Lỗi khi lấy thông tin Android app {pkg_name}: {e}")
@@ -104,6 +106,7 @@ def send_discord_embed(app_name, platform, old_version, info):
             ),
             "color": 0x1abc9c,
             "thumbnail": {"url": info["icon"]},
+            "image": {"url": info.get("screenshot")},  # 👈 thêm screenshot đầu tiên
             "footer": {"text": "App Update Notifier"}
         }
         payload = {"embeds": [embed]}
