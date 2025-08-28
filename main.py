@@ -62,7 +62,8 @@ def get_ios_info(app_id):
                 "url": app_data["trackViewUrl"],
                 "icon": app_data["artworkUrl100"],
                 "releaseNotes": app_data.get("releaseNotes", "Không có ghi chú"),
-                "releaseDate": release_date or "Không rõ"
+                "releaseDate": release_date or "Không rõ",
+                "developer": app_data.get("artistName", "Unknown"),
             }
         return None
     except Exception as e:
@@ -82,7 +83,8 @@ def get_android_info(pkg_name):
             "url": result["url"],
             "icon": result["icon"],
             "releaseNotes": result.get("recentChanges", "Không có ghi chú"),
-            "releaseDate": release_date or "Không rõ"
+            "releaseDate": release_date or "Không rõ",
+            "developer": result.get("developer", "Unknown"),
         }
     except Exception as e:
         print(f"❌ Lỗi khi lấy thông tin Android app {pkg_name}: {e}")
@@ -98,6 +100,7 @@ def send_discord_embed(app_name, platform, old_version, info):
                 f"**Old Version:** `{old_version or 'N/A'}`\n"
                 f"**New Version:** `{info['version']}`\n\n"
                 f"**Release Date:** {info.get('releaseDate', 'Không rõ')}\n\n"
+                f"**Developer:** [{info.get('publisher','Unknown')}]({info['url']})\n\n"
                 f"**Release Notes:**\n{info['releaseNotes'][:1000]}"
             ),
             "color": 0x1abc9c,
