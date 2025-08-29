@@ -103,7 +103,7 @@ def save_state(state):
 def get_ios_info(app_id):
     try:
         url = f"https://itunes.apple.com/lookup?id={app_id}"
-        res = requests.get(url, timeout=10).json()
+        res = requests.get(url, timeout=15).json()
         if "results" in res and len(res["results"]) > 0:
             app_data = res["results"][0]
             return {
@@ -167,7 +167,7 @@ def send_discord_embed(app_name, platform, old_version, info):
             embed["image"] = {"url": info["screenshot"]}
 
         payload = {"embeds": [embed]}
-        response = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
+        response = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=15)
         response.raise_for_status()
         print(f"✅ Đã gửi thông báo Discord cho {app_name}")
     except Exception as e:
@@ -217,7 +217,7 @@ def main():
         info = get_ios_info(app_data["id"])
         if info:
             old_version = state.get(app_data["id"])
-            print(f"    - Phiên bản cũ: {old_version or 'N/A'}, Phiên bản mới: {info['version']}, So sánh: {info['version'] != old_version}")
+            print(f"    - Cũ: {old_version or 'N/A'} | Mới: {info['version']} | Khác nhau: {info['version'] != old_version")
             if info["version"] != old_version:
                 print(f"   🎉 PHÁT HIỆN CẬP NHẬT: {info['name']} | {old_version} → {info['version']}")
                 send_discord_embed(info['name'], "iOS", old_version, info)
@@ -232,7 +232,7 @@ def main():
         info = get_android_info(app_data["id"])
         if info:
             old_version = state.get(app_data["id"])
-            print(f"    - Phiên bản cũ: {old_version or 'N/A'}, Phiên bản mới: {info['version']}, So sánh: {info['version'] != old_version}")
+            print(f"    - Cũ: {old_version or 'N/A'} | Mới: {info['version']} | Khác nhau: {info['version'] != old_version}")
             if info["version"] != old_version:
                 print(f"   🎉 PHÁT HIỆN CẬP NHẬT: {info['name']} | {old_version} → {info['version']}")
                 send_discord_embed(info['name'], "Android", old_version, info)

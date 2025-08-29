@@ -11,6 +11,7 @@ jobs:
       DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
       APPS_CONFIG: ${{ vars.APPS_CONFIG }}
       APPS_SHEET_URL: ${{ vars.APPS_SHEET_URL }}
+      PUBLISHERS_SHEET_URL: ${{ vars.PUBLISHERS_SHEET_URL }}
     runs-on: ubuntu-latest
     permissions:
       actions: write # Cho phép job này quản lý cache
@@ -20,23 +21,34 @@ jobs:
       - uses: actions/checkout@v3
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
       - name: Install dependencies
         run: pip install google-play-scraper requests
 
-      - name: Restore state from cache
-        uses: actions/cache@v3
+      - name: Restore app state
+        uses: actions/cache@v4
         with:
           path: last_versions.json
           key: app-versions-${{ github.run_number }}
           restore-keys: |
             app-versions-
 
-      - name: Run script
-        run: python main.py
+      - name: Restore publishers state
+        uses: actions/cache@v4
+        with:
+          path: publishers_state.json
+          key: publishers-${{ github.run_number }}
+          restore-keys: |
+            publishers-
+
+      - name: Watch publishers (new apps)
+        run: python watch_publishers.py
+
+      - name: Check app updates
+        run: python check_app_updates.py
 
       - name: Show current time (UTC & VN)
         run: |
@@ -47,19 +59,35 @@ jobs:
         run: |
           echo "===== last_versions.json ====="
           cat last_versions.json || echo "⚠️ File không tồn tại"
+          echo "===== publishers_state.json ====="
+          cat publishers_state.json || echo "⚠️ File không tồn tại"
 
-      - name: Save state to cache
-        uses: actions/cache/save@v3
+      - name: Save app state
+        uses: actions/cache/save@v4
         with:
           path: last_versions.json
           key: app-versions-${{ github.run_number }}
 
+      - name: Save publishers state
+        uses: actions/cache/save@v4
+        with:
+          path: publishers_state.json
+          key: publishers-${{ github.run_number }}
+
       - name: Cleanup old caches
         run: |
           echo "🔄 Cleaning up old caches..."
-          gh api --method GET repos/${{ github.repository }}/actions/caches \
-            -F key=app-versions- \
-            | jq -r '.actions_caches | .[2:] | .[].id' \
+          for PREFIX in app-versions- publishers-; do
+            echo "→ Prefix: $PREFIX"
+            gh api --method GET repos/${{ github.repository }}/actions/caches -F key=$PREFIX \
+            | jq -r '
+                .actions_caches
+                | sort_by(.last_accessed_at)        # sắp xếp cũ → mới
+                | reverse                           # mới → cũ
+                | .[2:]                             # giữ lại 2 cache mới nhất, còn lại xoá
+                | .[].id
+              ' \
             | xargs -I{} gh api --method DELETE repos/${{ github.repository }}/actions/caches/{} || true
+          done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
