@@ -158,6 +158,8 @@ def main():
         info = get_ios_info(app_data["id"])
         if info:
             old_version = state.get(app_data["id"])
+            print(f"- Phiên bản cũ: {old_version or 'N/A'}, Phiên bản mới: {info['version']}")
+            print(info["version"] != old_version)
             if info["version"] != old_version:
                 print(f"   🎉 PHÁT HIỆN CẬP NHẬT: {info['name']} | {old_version} → {info['version']}")
                 send_discord_embed(info['name'], "iOS", old_version, info)
@@ -172,6 +174,8 @@ def main():
         info = get_android_info(app_data["id"])
         if info:
             old_version = state.get(app_data["id"])
+            print(f"- Phiên bản cũ: {old_version or 'N/A'}, Phiên bản mới: {info['version']}")
+            print(info["version"] != old_version)
             if info["version"] != old_version:
                 print(f"   🎉 PHÁT HIỆN CẬP NHẬT: {info['name']} | {old_version} → {info['version']}")
                 send_discord_embed(info['name'], "Android", old_version, info)
