@@ -1,95 +1,55 @@
-// check_app_updates.js
+// watch_publishers.js
 import fs from "fs";
 import axios from "axios";
 import Papa from "papaparse";
-import gplay from "google-play-scraper"; // npm (facundoolano)
+import gplay from "google-play-scraper";
+import { postDiscord } from "./helpers/discord.js";
 
-// ===== CẤU HÌNH =====
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || "https://discord.com/api/webhooks/xxx/yyy";
-const STATE_FILE = "last_versions.json";
-const APPS_SHEET_URL = process.env.APPS_SHEET_URL; // CSV: platform,id,name_fallback
-const APPS_CONFIG = process.env.APPS_CONFIG; // JSON string (optional)
-// =====================
+const PUBLISHERS_SHEET_URL = process.env.PUBLISHERS_SHEET_URL; // CSV: platform,publisher_id
+const PUBLISHERS_STATE_FILE = "publishers_state.json";
 
 function loadState() {
   try {
-    if (fs.existsSync(STATE_FILE)) {
-      return JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
+    if (fs.existsSync(PUBLISHERS_STATE_FILE)) {
+      const raw = fs.readFileSync(PUBLISHERS_STATE_FILE, "utf8").trim();
+      if (!raw) return {}; // file rỗng
+      return JSON.parse(raw);
     }
-  } catch (e) { console.log("❌ Lỗi load state:", e.message); }
+  } catch (e) { console.log("❌ Lỗi load publishers state:", e.message); }
   return {};
 }
-
-function saveState(state) {
+function saveState(s) {
   try {
-    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
-    console.log(`💾 Đã lưu state vào ${STATE_FILE}`);
-  } catch (e) { console.log("❌ Lỗi lưu state:", e.message); }
+    fs.writeFileSync(PUBLISHERS_STATE_FILE, JSON.stringify(s, null, 2));
+    console.log(`💾 Đã lưu publishers state vào ${PUBLISHERS_STATE_FILE}`);
+  } catch (e) { console.log("❌ Lỗi lưu publishers state:", e.message); }
 }
 
-async function loadAppsFromSheet(url) {
+async function loadPublishersFromSheet(url) {
+  if (!url) return [];
   try {
     const { data } = await axios.get(url, { timeout: 15000 });
     const parsed = Papa.parse(data, { header: true, skipEmptyLines: false });
-    const cfg = { ios: [], android: [] };
+    const pubs = [];
     for (const row of parsed.data) {
       const platform = (row.platform || "").trim().toLowerCase();
-      const id = (row.id || "").trim();
-      const name_fallback = (row.name_fallback || "").trim() || id;
-      if (!platform || !id) continue;
-      if (platform === "ios" || platform === "android") {
-        cfg[platform].push({ id, name_fallback });
-      }
+      const pid = (row.publisher_id || "").trim();
+      if (!platform || !pid) continue;
+      if (platform === "ios" || platform === "android") pubs.push({ platform, publisher_id: pid });
     }
-    if (!cfg.ios.length && !cfg.android.length) return null;
-    console.log(`✅ Đã tải cấu hình từ Google Sheet: ${cfg.ios.length} iOS, ${cfg.android.length} Android`);
-    return cfg;
+    console.log(`✅ Đã tải ${pubs.length} publisher từ Google Sheet.`);
+    return pubs;
   } catch (e) {
-    console.log("❌ Lỗi đọc Google Sheet CSV:", e.message);
-    return null;
+    console.log("❌ Lỗi đọc sheet publisher:", e.message);
+    return [];
   }
-}
-
-async function loadAppsConfig() {
-  if (APPS_SHEET_URL) {
-    const cfg = await loadAppsFromSheet(APPS_SHEET_URL);
-    if (cfg) return cfg;
-    console.log("⚠️ Sheet lỗi/trống. Dùng APPS_CONFIG nếu có.");
-  }
-  if (APPS_CONFIG) {
-    try {
-      const cfg = JSON.parse(APPS_CONFIG);
-      console.log(`✅ Đã tải cấu hình từ APPS_CONFIG: ${cfg.ios?.length || 0} iOS, ${cfg.android?.length || 0} Android`);
-      return cfg;
-    } catch (e) {
-      console.log("❌ Lỗi parse APPS_CONFIG:", e.message);
-    }
-  }
-  console.log("⚠️ Dùng cấu hình mặc định cứng.");
-  return {
-    ios: [{ id: "1517783697", name_fallback: "Genshin Impact" }],
-    android: [{ id: "com.miHoYo.GenshinImpact", name_fallback: "Genshin Impact" }]
-  };
 }
 
 function formatDate(value) {
   if (!value) return "Không rõ";
-  // Try ISO
-  if (typeof value === "string") {
-    const iso = value.replace("Z", "");
-    const d1 = new Date(iso);
-    if (!isNaN(d1)) return d1.toLocaleDateString("vi-VN");
-    // Try "August 25, 2025"
-    const d2 = new Date(value);
-    if (!isNaN(d2)) return d2.toLocaleDateString("vi-VN");
-    return value;
-  }
-  if (typeof value === "number") {
-    const d = new Date(value > 32503680000 ? value : value * 1000);
-    return d.toLocaleDateString("vi-VN");
-  }
-  if (value instanceof Date) return value.toLocaleDateString("vi-VN");
-  return String(value);
+  const d = new Date(value);
+  return isNaN(d) ? String(value) : d.toLocaleDateString("vi-VN");
 }
 
 async function getIOSInfo(appId) {
@@ -99,27 +59,23 @@ async function getIOSInfo(appId) {
       const a = data.results[0];
       return {
         name: a.trackName,
-        version: a.version,
+        version: a.version || "Không rõ",
         url: a.trackViewUrl,
         icon: a.artworkUrl100,
         releaseNotes: a.releaseNotes || "",
         releaseDate: formatDate(a.currentVersionReleaseDate),
         developer: a.artistName || "Không rõ",
         developerUrl: a.artistViewUrl || a.trackViewUrl,
-        genres: (a.genres || []).join(", ") || a.primaryGenreName || "Không rõ",
         screenshot: (a.screenshotUrls || [null])[0]
       };
     }
-    return null;
-  } catch (e) {
-    console.log(`❌ Lỗi iOS app ${appId}:`, e.message);
-    return null;
-  }
+    return {};
+  } catch { return {}; }
 }
 
 async function getAndroidInfo(pkg) {
   try {
-    const r = await gplay.app({ appId: pkg }); // mặc định US/en
+    const r = await gplay.app({ appId: pkg });
     return {
       name: r.title,
       version: r.version || "Không rõ",
@@ -129,79 +85,151 @@ async function getAndroidInfo(pkg) {
       releaseDate: formatDate(r.updated),
       developer: r.developer || "Không rõ",
       developerUrl: r.developerId ? `https://play.google.com/store/apps/dev?id=${r.developerId}` : r.url,
-      genres: r.genre || "Không rõ",
       screenshot: (r.screenshots && r.screenshots[0]) || null
     };
-  } catch (e) {
-    console.log(`❌ Lỗi Android app ${pkg}:`, e.message);
-    return null;
+  } catch { return {}; }
+}
+
+function buildAppUrl(platform, appId, infoUrl) {
+  if (infoUrl) return infoUrl;
+  return platform === "ios"
+    ? `https://apps.apple.com/app/id${appId}`
+    : `https://play.google.com/store/apps/details?id=${appId}`;
+}
+
+async function sendDiscordBatch(embeds) {
+  // Gửi theo lô 10 embeds / request, có gap nhỏ giữa các lô
+  for (let i = 0; i < embeds.length; i += 10) {
+    const chunk = embeds.slice(i, i + 10);
+    await postDiscord(DISCORD_WEBHOOK_URL, { embeds: chunk });
+    if (i + 10 < embeds.length) {
+      const gap = 300 + Math.floor(Math.random() * 300); // 300–600ms
+      await new Promise(r => setTimeout(r, gap));
+    }
   }
 }
 
-async function sendDiscordEmbed(appName, platform, oldVersion, info) {
+async function listIOSAppsByPublisher(artistId) {
   try {
-    const embed = {
-      title: `📢 ${appName} (${platform}) vừa cập nhật!`,
-      url: info.url,
-      description:
-        `**Nền tảng:** ${platform}\n` +
-        `**Phiên bản cũ:** \`${oldVersion || "N/A"}\`\n` +
-        `**Phiên bản mới:** \`${info.version}\`\n` +
-        `**Ngày phát hành:** ${info.releaseDate || "Không rõ"}\n` +
-        `**Nhà phát triển:** [${info.developer || "Không rõ"}](${info.developerUrl || info.url})\n` +
-        `**Thể loại:** ${info.genres || "Không rõ"}\n\n` +
-        `**Ghi chú phát hành:**\n${(info.releaseNotes || "").slice(0, 1000)}`,
-      color: 0x1abc9c,
-      thumbnail: { url: info.icon },
-      footer: { text: "App Update Notifier" }
-    };
-    if (info.screenshot) embed.image = { url: info.screenshot };
-
-    await axios.post(DISCORD_WEBHOOK_URL, { embeds: [embed] }, { timeout: 15000 });
-    console.log(`✅ Đã gửi thông báo Discord cho ${appName} (${platform})`);
+    const { data } = await axios.get(`https://itunes.apple.com/lookup?id=${artistId}&entity=software`, { timeout: 15000 });
+    const apps = [];
+    let publisherName = "Không rõ";
+    for (const it of (data.results || [])) {
+      if (it.artistName) publisherName = it.artistName;
+      if (it.trackId && it.kind === "software") {
+        apps.push({ id: String(it.trackId), name: it.trackName || String(it.trackId) });
+      }
+    }
+    return { publisherName, apps };
   } catch (e) {
-    console.log("❌ Lỗi gửi Discord:", e.message);
+    console.log(`❌ Lỗi iOS artist ${artistId}:`, e.message);
+    return { publisherName: "Không rõ", apps: [] };
+  }
+}
+
+async function listAndroidAppsByPublisher(devId) {
+  try {
+    const items = await gplay.developer({ devId, num: 200, fullDetail: true });
+    const apps = [];
+    let publisherName = "Không rõ";
+    if (items && items.length) {
+      publisherName = items[0].developer || "Không rõ";
+      for (const it of items) {
+        if (it.appId) apps.push({ id: it.appId, name: it.title || it.appId });
+      }
+    }
+    return { publisherName, apps };
+  } catch (e) {
+    console.log(`❌ Lỗi Android developer ${devId}:`, e.message);
+    return { publisherName: "Không rõ", apps: [] };
   }
 }
 
 async function main() {
-  console.log("🔄 Bắt đầu kiểm tra cập nhật phiên bản ứng dụng...");
-  const apps = await loadAppsConfig();
-  console.log(`📋 Danh sách ứng dụng: ${apps.ios.length} iOS, ${apps.android.length} Android`);
+  console.log("🔄 Bắt đầu theo dõi publisher phát hành app mới...");
+  const publishers = await loadPublishersFromSheet(PUBLISHERS_SHEET_URL);
+  if (!publishers.length) { console.log("ℹ️ Danh sách publisher rỗng. Bỏ qua."); return; }
 
   const state = loadState();
-  let changed = false;
-
-  console.log("📱 Kiểm tra iOS...");
-  for (const a of apps.ios) {
-    console.log(`   🔍 ${a.name_fallback}...`);
-    const info = await getIOSInfo(a.id);
-    if (!info) { console.log("    ⚠️ Không lấy được thông tin."); continue; }
-    const old = state[a.id];
-    console.log(`    - Cũ: ${old || "N/A"} | Mới: ${info.version} | Khác nhau: ${info.version !== old}`);
-    if (info.version !== old) {
-      await sendDiscordEmbed(info.name, "iOS", old, info);
-      state[a.id] = info.version;
-      changed = true;
-    }
+  const firstRun = !fs.existsSync(PUBLISHERS_STATE_FILE) || Object.keys(state).length === 0;
+  if (firstRun) {
+    console.log("🆕 Lần chạy đầu (publishers state rỗng) → chỉ lưu snapshot, KHÔNG gửi Discord.");
   }
 
-  console.log("🤖 Kiểm tra Android...");
-  for (const a of apps.android) {
-    console.log(`   🔍 ${a.name_fallback}...`);
-    const info = await getAndroidInfo(a.id);
-    if (!info) { console.log("    ⚠️ Không lấy được thông tin."); continue; }
-    const old = state[a.id];
-    console.log(`    - Cũ: ${old || "N/A"} | Mới: ${info.version} | Khác nhau: ${info.version !== old}`);
-    if (info.version !== old) {
-      await sendDiscordEmbed(info.name, "Android", old, info);
-      state[a.id] = info.version;
-      changed = true;
+  let hasNew = false;
+
+  for (const p of publishers) {
+    const { platform, publisher_id } = p;
+    const key = `${platform}:${publisher_id}`;
+
+    let publisherName, current;
+    if (platform === "ios") {
+      const r = await listIOSAppsByPublisher(publisher_id);
+      publisherName = r.publisherName; current = r.apps;
+    } else {
+      const r = await listAndroidAppsByPublisher(publisher_id);
+      publisherName = r.publisherName; current = r.apps;
     }
+
+    console.log(`👤 Publisher: ${publisherName} (${key}) — đang kiểm tra...`);
+    const currentIds = new Set(current.map(x => x.id));
+    const prevIds = new Set((state[key]?.app_ids || []));
+
+    const newIds = [...currentIds].filter(id => !prevIds.has(id));
+
+    if (!firstRun && newIds.length) {
+      hasNew = true;
+      console.log(`   🎯 Có ${newIds.length} app mới: ${newIds.slice(0, 5).join(", ")}...`);
+
+      // Gom embeds
+      const embeds = [];
+      for (const item of current) {
+        if (!newIds.includes(item.id)) continue;
+
+        const info = platform === "ios" ? await getIOSInfo(item.id) : await getAndroidInfo(item.id);
+        const safe = info || {};
+        const appUrl = buildAppUrl(platform, item.id, safe.url);
+
+        const embed = {
+          title: `🆕 ${publisherName} vừa phát hành app mới! - ${item.name}`,
+          url: appUrl,
+          description:
+            `**Publisher:** [${publisherName}](${safe.developerUrl || ""})\n` +
+            `**Platform:** ${platform}\n` +
+            `**App:** ${item.name}\n` +
+            `**Version:** \`${safe.version || "Không rõ"}\`\n` +
+            `**Release Date:** ${safe.releaseDate || "Không rõ"}\n\n` +
+            `**Genres:** ${info.genres || "Không rõ"}\n\n` +
+            `**Release Notes:**\n${(safe.releaseNotes || "").slice(0, 800)}`,
+          color: 0x5865f2,
+          thumbnail: { url: safe.icon || "" },
+          footer: { text: "Publisher Watch" }
+        };
+        if (safe.screenshot) embed.image = { url: safe.screenshot };
+        embeds.push(embed);
+      }
+
+      await sendDiscordBatch(embeds);
+    } else if (!firstRun) {
+      console.log("   ✅ Chưa có app mới.");
+    } else {
+      console.log("   (First run) Bỏ qua gửi Discord cho publisher này.");
+    }
+
+    // Luôn cập nhật snapshot state
+    state[key] = {
+      publisher_name: publisherName,
+      app_ids: [...currentIds].sort(),
+      checked_at: new Date().toISOString().slice(0, 19).replace("T", " ")
+    };
   }
 
-  if (changed) saveState(state);
-  else console.log("ℹ️ Không phát hiện cập nhật phiên bản nào");
+  // Lưu state (kể cả firstRun)
+  saveState(state);
+
+  if (!firstRun && !hasNew) {
+    console.log("ℹ️ Không phát hiện app mới nào từ các publisher.");
+  }
 }
 
 main().catch(e => { console.error(e); process.exit(1); });

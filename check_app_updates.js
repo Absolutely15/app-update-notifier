@@ -2,19 +2,22 @@
 import fs from "fs";
 import axios from "axios";
 import Papa from "papaparse";
-import gplay from "google-play-scraper"; // npm (facundoolano)
+import gplay from "google-play-scraper";
+import { postDiscord } from "./helpers/discord.js";
 
 // ===== CẤU HÌNH =====
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || "https://discord.com/api/webhooks/xxx/yyy";
 const STATE_FILE = "last_versions.json";
 const APPS_SHEET_URL = process.env.APPS_SHEET_URL; // CSV: platform,id,name_fallback
-const APPS_CONFIG = process.env.APPS_CONFIG; // JSON string (optional)
+const APPS_CONFIG = process.env.APPS_CONFIG;       // JSON string (optional)
 // =====================
 
 function loadState() {
   try {
     if (fs.existsSync(STATE_FILE)) {
-      return JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
+      const raw = fs.readFileSync(STATE_FILE, "utf8").trim();
+      if (!raw) return {}; // file rỗng
+      return JSON.parse(raw);
     }
   } catch (e) { console.log("❌ Lỗi load state:", e.message); }
   return {};
@@ -74,12 +77,10 @@ async function loadAppsConfig() {
 
 function formatDate(value) {
   if (!value) return "Không rõ";
-  // Try ISO
   if (typeof value === "string") {
     const iso = value.replace("Z", "");
     const d1 = new Date(iso);
     if (!isNaN(d1)) return d1.toLocaleDateString("vi-VN");
-    // Try "August 25, 2025"
     const d2 = new Date(value);
     if (!isNaN(d2)) return d2.toLocaleDateString("vi-VN");
     return value;
@@ -144,20 +145,20 @@ async function sendDiscordEmbed(appName, platform, oldVersion, info) {
       title: `📢 ${appName} (${platform}) vừa cập nhật!`,
       url: info.url,
       description:
-        `**Nền tảng:** ${platform}\n` +
-        `**Phiên bản cũ:** \`${oldVersion || "N/A"}\`\n` +
-        `**Phiên bản mới:** \`${info.version}\`\n` +
-        `**Ngày phát hành:** ${info.releaseDate || "Không rõ"}\n` +
-        `**Nhà phát triển:** [${info.developer || "Không rõ"}](${info.developerUrl || info.url})\n` +
-        `**Thể loại:** ${info.genres || "Không rõ"}\n\n` +
-        `**Ghi chú phát hành:**\n${(info.releaseNotes || "").slice(0, 1000)}`,
+        `**Platform:** ${platform}\n` +
+        `**Old Version:** \`${oldVersion || "N/A"}\`\n` +
+        `**New Version:** \`${info.version}\`\n` +
+        `**Release Date:** ${info.releaseDate || "Không rõ"}\n` +
+        `**Developer:** [${info.developer || "Không rõ"}](${info.developerUrl || info.url})\n` +
+        `**Genres:** ${info.genres || "Không rõ"}\n\n` +
+        `**Release Notes:**\n${(info.releaseNotes || "").slice(0, 1000)}`,
       color: 0x1abc9c,
       thumbnail: { url: info.icon },
       footer: { text: "App Update Notifier" }
     };
     if (info.screenshot) embed.image = { url: info.screenshot };
 
-    await axios.post(DISCORD_WEBHOOK_URL, { embeds: [embed] }, { timeout: 15000 });
+    await postDiscord(DISCORD_WEBHOOK_URL, { embeds: [embed] });
     console.log(`✅ Đã gửi thông báo Discord cho ${appName} (${platform})`);
   } catch (e) {
     console.log("❌ Lỗi gửi Discord:", e.message);
@@ -170,6 +171,11 @@ async function main() {
   console.log(`📋 Danh sách ứng dụng: ${apps.ios.length} iOS, ${apps.android.length} Android`);
 
   const state = loadState();
+  const firstRun = !fs.existsSync(STATE_FILE) || Object.keys(state).length === 0;
+  if (firstRun) {
+    console.log("🆕 Lần chạy đầu (state rỗng) → chỉ lưu snapshot, KHÔNG gửi Discord.");
+  }
+
   let changed = false;
 
   console.log("📱 Kiểm tra iOS...");
@@ -180,7 +186,9 @@ async function main() {
     const old = state[a.id];
     console.log(`    - Cũ: ${old || "N/A"} | Mới: ${info.version} | Khác nhau: ${info.version !== old}`);
     if (info.version !== old) {
-      await sendDiscordEmbed(info.name, "iOS", old, info);
+      if (!firstRun) {
+        await sendDiscordEmbed(info.name, "iOS", old, info);
+      }
       state[a.id] = info.version;
       changed = true;
     }
@@ -194,14 +202,19 @@ async function main() {
     const old = state[a.id];
     console.log(`    - Cũ: ${old || "N/A"} | Mới: ${info.version} | Khác nhau: ${info.version !== old}`);
     if (info.version !== old) {
-      await sendDiscordEmbed(info.name, "Android", old, info);
+      if (!firstRun) {
+        await sendDiscordEmbed(info.name, "Android", old, info);
+      }
       state[a.id] = info.version;
       changed = true;
     }
   }
 
-  if (changed) saveState(state);
-  else console.log("ℹ️ Không phát hiện cập nhật phiên bản nào");
+  if (changed || firstRun) {
+    saveState(state);
+  } else {
+    console.log("ℹ️ Không phát hiện cập nhật phiên bản nào");
+  }
 }
 
 main().catch(e => { console.error(e); process.exit(1); });
