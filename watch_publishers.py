@@ -6,7 +6,7 @@ import csv
 import io
 from datetime import datetime
 from google_play_scraper import app as gp_app
-from google_play_scraper import developer as gp_developer
+from google_play_scraper.feature.developer import developer as gp_developer
 
 # ========== CẤU HÌNH ==========
 DISCORD_WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK_URL', 'https://discord.com/api/webhooks/xxx/yyy')
