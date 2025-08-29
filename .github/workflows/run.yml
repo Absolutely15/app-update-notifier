@@ -2,7 +2,7 @@ name: Check App Updates
 
 on:
   schedule:
-    - cron: "0 2 * * *" # chạy mỗi giờ (UTC)
+    - cron: "0 2 * * *" # chạy 09:00 hàng ngày (Asia/Ho_Chi_Minh)
   workflow_dispatch: # cho phép bấm nút "Run workflow" thủ công
 
 jobs:
@@ -10,6 +10,7 @@ jobs:
     env:
       DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
       APPS_CONFIG: ${{ vars.APPS_CONFIG }}
+      APPS_SHEET_URL: ${{ vars.APPS_SHEET_URL }}
     runs-on: ubuntu-latest
     permissions:
       actions: write # Cho phép job này quản lý cache

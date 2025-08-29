@@ -5,17 +5,68 @@ from google_play_scraper import app
 from datetime import datetime
 
 # ========== CONFIG ==========
+DISCORD_WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK_URL', 'https://discord.com/api/webhooks/xxx/yyy')
+STATE_FILE = "last_versions.json"
+APPS_SHEET_URL = os.getenv("APPS_SHEET_URL")  # <-- URL CSV Google Sheet (Publish to web)
+APPS_CONFIG = os.getenv('APPS_CONFIG')
+# ===========================
+
+
+# ---------- Helpers for config ----------
+def load_apps_config_from_sheet(url: str):
+    """Đọc Google Sheet (CSV) thành dict {'ios': [], 'android': []}"""
+    try:
+        r = requests.get(url, timeout=15)
+        r.raise_for_status()
+        content = r.content.decode("utf-8", errors="ignore")
+        reader = csv.DictReader(io.StringIO(content))
+
+        cfg = {"ios": [], "android": []}
+        for row in reader:
+            platform = (row.get("platform") or "").strip().lower()
+            app_id = (row.get("id") or "").strip()
+            name_fallback = (row.get("name_fallback") or "").strip() or app_id
+
+            # Skip blank rows / separators
+            if not platform or not app_id:
+                continue
+
+            if platform in ("ios", "android"):
+                cfg[platform].append({"id": app_id, "name_fallback": name_fallback})
+
+        # Return None if sheet is effectively empty
+        if not cfg["ios"] and not cfg["android"]:
+            return None
+
+        print(f"✅ Loaded apps config from Google Sheet (CSV): {len(cfg['ios'])} iOS, {len(cfg['android'])} Android")
+        return cfg
+
+    except Exception as e:
+        print(f"❌ Error reading Google Sheet CSV: {e}")
+        return None
+
+
 def load_apps_config():
-    """Load cấu hình apps từ Repository Variable"""
-    config_str = os.getenv('APPS_CONFIG')
-    if config_str:
+    """Priority: Google Sheet CSV -> APPS_CONFIG (JSON) -> hardcoded fallback."""
+    # 1) Try Google Sheet CSV
+    if APPS_SHEET_URL:
+        cfg = load_apps_config_from_sheet(APPS_SHEET_URL)
+        if cfg:
+            return cfg
+        print("⚠️ Google Sheet invalid/empty. Falling back to APPS_CONFIG.")
+
+    # 2) Try APPS_CONFIG JSON env
+    if APPS_CONFIG:
         try:
-            return json.loads(config_str)
+            cfg = json.loads(APPS_CONFIG)
+            print(f"✅ Loaded apps config from APPS_CONFIG (JSON): {len(cfg.get('ios', []))} iOS, {len(cfg.get('android', []))} Android")
+            return cfg
         except Exception as e:
             print(f"❌ Lỗi khi parse APPS_CONFIG: {e}")
-            print(f"Config string: {config_str[:100]}...")  # Log một phần để debug
-    
-    # Fallback config nếu không có variable
+            print(f"Config string: {APPS_CONFIG[:100]}...")
+
+    # 3) Fallback
+    print("⚠️ Using hardcoded fallback config.")
     return {
         "ios": [
             {"id": "1517783697", "name_fallback": "Genshin Impact"}
@@ -25,10 +76,8 @@ def load_apps_config():
         ]
     }
 
-DISCORD_WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK_URL', 'https://discord.com/api/webhooks/xxx/yyy')
-STATE_FILE = "last_versions.json"
-# ============================
 
+# ---------- State ----------
 def load_state():
     try:
         if os.path.exists(STATE_FILE):
@@ -39,6 +88,7 @@ def load_state():
         print(f"❌ Lỗi khi load state: {e}")
         return {}
 
+
 def save_state(state):
     try:
         with open(STATE_FILE, "w") as f:
@@ -47,6 +97,7 @@ def save_state(state):
     except Exception as e:
         print(f"❌ Lỗi khi save state: {e}")
 
+# ---------- Fetchers ----------
 def get_ios_info(app_id):
     try:
         url = f"https://itunes.apple.com/lookup?id={app_id}"
@@ -89,6 +140,7 @@ def get_android_info(pkg_name):
         print(f"❌ Lỗi khi lấy thông tin Android app {pkg_name}: {e}")
         return None
 
+# ---------- Discord ----------
 def send_discord_embed(app_name, platform, old_version, info):
     try:
         embed = {
@@ -106,9 +158,12 @@ def send_discord_embed(app_name, platform, old_version, info):
             ),
             "color": 0x1abc9c,
             "thumbnail": {"url": info["icon"]},
-            "image": {"url": info.get("screenshot")},  # 👈 thêm screenshot đầu tiên
             "footer": {"text": "App Update Notifier"}
         }
+
+        if info.get("screenshot"):
+            embed["image"] = {"url": info["screenshot"]}
+
         payload = {"embeds": [embed]}
         response = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
         response.raise_for_status()
@@ -116,6 +171,7 @@ def send_discord_embed(app_name, platform, old_version, info):
     except Exception as e:
         print(f"❌ Lỗi khi gửi Discord: {e}")
 
+# ---------- Utils ----------
 def format_date(value):
     """Chuẩn hóa các kiểu date thành DD-MM-YYYY"""
     if not value:
@@ -144,6 +200,7 @@ def format_date(value):
 
     return str(value)
 
+# ---------- Main ----------
 def main():
     print("🔄 Bắt đầu kiểm tra cập nhật...")
     APPS = load_apps_config()
@@ -158,8 +215,7 @@ def main():
         info = get_ios_info(app_data["id"])
         if info:
             old_version = state.get(app_data["id"])
-            print(f"- Phiên bản cũ: {old_version or 'N/A'}, Phiên bản mới: {info['version']}")
-            print(info["version"] != old_version)
+            print(f"    - Phiên bản cũ: {old_version or 'N/A'}, Phiên bản mới: {info['version']}, So sánh: {info['version'] != old_version}")
             if info["version"] != old_version:
                 print(f"   🎉 PHÁT HIỆN CẬP NHẬT: {info['name']} | {old_version} → {info['version']}")
                 send_discord_embed(info['name'], "iOS", old_version, info)
@@ -174,8 +230,7 @@ def main():
         info = get_android_info(app_data["id"])
         if info:
             old_version = state.get(app_data["id"])
-            print(f"- Phiên bản cũ: {old_version or 'N/A'}, Phiên bản mới: {info['version']}")
-            print(info["version"] != old_version)
+            print(f"    - Phiên bản cũ: {old_version or 'N/A'}, Phiên bản mới: {info['version']}, So sánh: {info['version'] != old_version}")
             if info["version"] != old_version:
                 print(f"   🎉 PHÁT HIỆN CẬP NHẬT: {info['name']} | {old_version} → {info['version']}")
                 send_discord_embed(info['name'], "Android", old_version, info)
