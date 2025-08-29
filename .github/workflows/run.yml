@@ -20,13 +20,13 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          python-version: "3.10"
+          node-version: 18
 
       - name: Install dependencies
-        run: pip install git+https://github.com/JoMingyu/google-play-scraper@master requests
+        run: npm ci || npm i
 
       - name: Restore app state
         uses: actions/cache@v4
@@ -45,10 +45,10 @@ jobs:
             publishers-
 
       - name: Watch publishers (new apps)
-        run: python watch_publishers.py
+        run: python watch:publishers
 
       - name: Check app updates
-        run: python check_app_updates.py
+        run: python check:apps
 
       - name: Show current time (UTC & VN)
         run: |
