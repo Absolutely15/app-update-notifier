@@ -66,6 +66,7 @@ async function getIOSInfo(appId) {
         releaseDate: formatDate(a.currentVersionReleaseDate),
         developer: a.artistName || "Không rõ",
         developerUrl: a.artistViewUrl || a.trackViewUrl,
+        genres: (a.genres || []).join(", ") || a.primaryGenreName || "Không rõ",
         screenshot: (a.screenshotUrls || [null])[0]
       };
     }
@@ -85,6 +86,7 @@ async function getAndroidInfo(pkg) {
       releaseDate: formatDate(r.updated),
       developer: r.developer || "Không rõ",
       developerUrl: r.developerId ? `https://play.google.com/store/apps/dev?id=${r.developerId}` : r.url,
+      genres: r.genre || "Không rõ",
       screenshot: (r.screenshots && r.screenshots[0]) || null
     };
   } catch { return {}; }
