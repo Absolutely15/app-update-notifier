@@ -4,7 +4,7 @@ import axios from "axios";
 import Papa from "papaparse";
 import gplay from "google-play-scraper";
 import { createThreadInTextChannel, sendMessageToThread, getChannelSafe, unarchiveThread } from "./helpers/discord_bot.js";
-import { pickChannelId, ensureThreadBelongsToChannel } from "./helpers/discord_channel.js";
+import { pickChannelId, ensureThreadBelongsToChannel, reuseThreadByNameInThisChannel } from "./helpers/discord_channel.js";
 
 const PUBLISHERS_SHEET_URL = process.env.PUBLISHERS_SHEET_URL; // CSV: platform,publisher_id
 const PUBLISHERS_STATE_FILE = "publishers_state.json";
@@ -49,8 +49,8 @@ async function loadPublishersFromSheet(url) {
 function formatDate(value) {
   if (!value) return "Không rõ";
   if (typeof value === "string") {
-    const iso = value.replace("Z", "");
-    const d1 = new Date(iso);
+    //const iso = value.replace("Z", "");
+    const d1 = new Date(value);
     if (!isNaN(d1)) return d1.toLocaleDateString("vi-VN");
     const d2 = new Date(value);
     if (!isNaN(d2)) return d2.toLocaleDateString("vi-VN");
@@ -129,6 +129,8 @@ async function ensurePublisherThread(platform, publisherId, publisherName, state
   const key = `${platform}:${publisherId}`;
   const entry = state[key] || {};
   const channelId = pickChannelId("watch_publisher", platform);
+  const threadName = `${publisherName} — ${platform === "ios" ? "iOS" : "Android"} — New Games`;
+
   if (entry.thread_id) {
     // 1) Tồn tại & đúng channel?
     const check = await ensureThreadBelongsToChannel(entry.thread_id, channelId);
@@ -145,10 +147,17 @@ async function ensurePublisherThread(platform, publisherId, publisherName, state
         console.log(`↪️ Thread cũ không hợp lệ (${check.reason}) → tạo mới trong channel đúng.`);
     }
   }
-  const name = `${publisherName} — ${platform === "ios" ? "iOS" : "Android"} — New Games`;
-  const threadId = await createThreadInTextChannel(channelId, name, 10080);
+
+  const reused = await reuseThreadByNameInThisChannel(channelId, threadName);
+  if (reused) {
+    state[key] = { ...(state[key] || {}), thread_id: reused, publisher_name: publisherName };
+    console.log(`♻️ Dùng lại thread theo tên trong channel: ${threadName} (${reused})`);
+    return reused;
+  }
+
+  const threadId = await createThreadInTextChannel(channelId, threadName, 10080);
   state[key] = { ...(state[key] || {}), thread_id: threadId, publisher_name: publisherName };
-  console.log(`🧵 Tạo thread publisher: ${name} (${threadId})`);
+  console.log(`🧵 Tạo thread publisher: ${threadName} (${threadId})`);
   return threadId;
 }
 

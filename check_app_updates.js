@@ -4,7 +4,7 @@ import axios from "axios";
 import Papa from "papaparse";
 import gplay from "google-play-scraper";
 import { createThreadInTextChannel, sendMessageToThread, getChannelSafe, unarchiveThread } from "./helpers/discord_bot.js";
-import { pickChannelId, ensureThreadBelongsToChannel } from "./helpers/discord_channel.js";
+import { pickChannelId, ensureThreadBelongsToChannel, reuseThreadByNameInThisChannel } from "./helpers/discord_channel.js";
 
 // ===== CẤU HÌNH =====
 const STATE_FILE = "last_versions.json";
@@ -37,6 +37,7 @@ function saveState(state) {
 async function ensureAppThread(taskName, platform, appId, appDisplayName, state) {
   const entry = state[appId] || {};
   const channelId = pickChannelId(taskName, platform);
+  const threadName = `${appDisplayName} — ${platform === "ios" ? "iOS" : "Android"} Updates`;
 
   if (entry.thread_id) {
    const check = await ensureThreadBelongsToChannel(entry.thread_id, channelId);
@@ -53,10 +54,16 @@ async function ensureAppThread(taskName, platform, appId, appDisplayName, state)
    }
   }
   
-  const name = `${appDisplayName} — ${platform === "ios" ? "iOS" : "Android"} Updates`;
-  const threadId = await createThreadInTextChannel(channelId, name, 10080);
+  const reused = await reuseThreadByNameInThisChannel(channelId, threadName);
+  if (reused) {
+    state[appId] = { ...(state[appId] || {}), thread_id: reused };
+    console.log(`♻️ Dùng lại thread theo tên trong channel: ${threadName} (${reused})`);
+    return reused;
+  }
+  
+  const threadId = await createThreadInTextChannel(channelId, threadName, 10080);
   state[appId] = { ...(state[appId] || {}), thread_id: threadId };
-  console.log(`🧵 Tạo thread game: ${name} (${threadId})`);
+  console.log(`🧵 Tạo thread game: ${threadName} (${threadId})`);
   return threadId;
 }
 
@@ -99,8 +106,8 @@ async function loadAppsConfig() {
 function formatDate(value) {
   if (!value) return "Không rõ";
   if (typeof value === "string") {
-    const iso = value.replace("Z", "");
-    const d1 = new Date(iso);
+    //const iso = value.replace("Z", "");
+    const d1 = new Date(value);
     if (!isNaN(d1)) return d1.toLocaleDateString("vi-VN");
     const d2 = new Date(value);
     if (!isNaN(d2)) return d2.toLocaleDateString("vi-VN");
@@ -233,9 +240,8 @@ async function main() {
     }
   }
 
-  if (changed || firstRun) {
-    saveState(state);
-  } else {
+  saveState(state);
+  if (!changed && !firstRun) {
     console.log("ℹ️ Không phát hiện cập nhật phiên bản nào");
   }
 }

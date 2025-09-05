@@ -34,3 +34,102 @@ export async function ensureThreadBelongsToChannel(threadId, channelId) {
 
   return { ok: true, info };
 }
+
+function norm(s) {
+  return String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/**
+ * Tìm thread theo tên *chỉ trong channel này*.
+ * - archived: dùng các endpoint per-channel (public, optional private)
+ * - active: (tuỳ chọn) gọi guild-active rồi *lọc parent_id* === channelId
+ *
+ * opts:
+ *   - maxArchivedPages: số trang archived/public duyệt (mặc định 3)
+ *   - includeActive: có duyệt active threads (qua guild endpoint) không (mặc định true)
+ *   - includePrivateArchived: có duyệt archived/private không (mặc định false)
+ */
+export async function findThreadByNameInThisChannel(channelId, name, {
+  maxArchivedPages = 3,
+  includeActive = true,
+  includePrivateArchived = false,
+} = {}) {
+  const wanted = norm(name);
+
+  // 0) Lấy channel để biết guild_id (cần nếu includeActive = true)
+  const ch = await getChannelSafe(channelId);
+  if (!ch) return null;
+  const guildId = ch.guild_id;
+
+  // 1) Archived PUBLIC của channel
+  let before = undefined;
+  for (let page = 0; page < maxArchivedPages; page++) {
+    const url = new URL(`${API}/channels/${channelId}/threads/archived/public`);
+    if (before) url.searchParams.set("before", before);
+
+    try {
+      const { data } = await axios.get(url.toString(), AUTH);
+      const threads = data?.threads || [];
+      const hit = threads.find(t => norm(t.name) === wanted);
+      if (hit) return hit;
+      if (!data?.has_more || threads.length === 0) break;
+      before = threads[threads.length - 1]?.id;
+      if (!before) break;
+    } catch (e) {
+      console.log("⚠️ archived/public fetch error:", e.message);
+      break;
+    }
+  }
+
+  // 2) Archived PRIVATE của channel (nếu muốn & bot có quyền)
+  if (includePrivateArchived) {
+    before = undefined;
+    for (let page = 0; page < maxArchivedPages; page++) {
+      const url = new URL(`${API}/channels/${channelId}/threads/archived/private`);
+      if (before) url.searchParams.set("before", before);
+      try {
+        const { data } = await axios.get(url.toString(), AUTH);
+        const threads = data?.threads || [];
+        const hit = threads.find(t => norm(t.name) === wanted);
+        if (hit) return hit;
+        if (!data?.has_more || threads.length === 0) break;
+        before = threads[threads.length - 1]?.id;
+        if (!before) break;
+      } catch (e) {
+        console.log("⚠️ archived/private fetch error:", e.message);
+        break;
+      }
+    }
+  }
+
+  // 3) Active threads (tuỳ chọn): chỉ lấy trong guild rồi *lọc đúng channel*
+  if (includeActive && guildId) {
+    try {
+      const { data } = await axios.get(`${API}/guilds/${guildId}/threads/active`, AUTH);
+      const active = data?.threads || [];
+      const hit = active.find(t => String(t.parent_id) === String(channelId) && norm(t.name) === wanted);
+      if (hit) return hit;
+    } catch (e) {
+      console.log("⚠️ guild active fetch error:", e.message);
+    }
+  }
+
+  return null;
+}
+
+/** Reuse thread nếu tìm thấy theo tên *trong channel này*; nếu archived thì unarchive */
+export async function reuseThreadByNameInThisChannel(channelId, name) {
+  const t = await findThreadByNameInThisChannel(channelId, name, {
+    maxArchivedPages: 3,
+    includeActive: true,            // vẫn chỉ quan tâm channel này vì có lọc parent_id
+    includePrivateArchived: false,  // bật nếu bạn dùng private threads
+  });
+  if (!t) return null;
+
+  const meta = t.thread_metadata || {};
+  if (meta.locked) return null;
+  if (meta.archived) {
+    try { await unarchiveThread(t.id, 10080); } catch {}
+  }
+  return t.id;
+}
