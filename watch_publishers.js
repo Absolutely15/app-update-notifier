@@ -128,6 +128,7 @@ async function sendThreadBatch(threadId, embeds) {
 }
 
 async function ensurePublisherThread(platform, publisherId, publisherName, state) {
+  let created = false;
   const key = `${platform}:${publisherId}`;
   const entry = state[key] || {};
   const channelId = pickChannelId("watch_publisher", platform);
@@ -142,7 +143,7 @@ async function ensurePublisherThread(platform, publisherId, publisherName, state
         console.log("🔒 Thread cũ locked → tạo mới.");
       } else {
         if (meta.archived) await unarchiveThread(entry.thread_id, 10080);
-        return entry.thread_id; // ✅ reuse
+        return { threadId: entry.thread_id, created }; // ✅ reuse
       }
     } else {
       // not_found / wrong_parent / not_thread
@@ -154,14 +155,15 @@ async function ensurePublisherThread(platform, publisherId, publisherName, state
   if (reused) {
     state[key] = { ...(state[key] || {}), thread_id: reused, publisher_name: publisherName };
     console.log(`♻️ Dùng lại thread theo tên trong channel: ${threadName} (${reused})`);
-    return reused;
+    return { threadId: entry.thread_id, created };
   }
 
   const threadId = await createThreadInTextChannel(channelId, threadName, 10080);
-  await pingRolesInThread(threadId, { extraText: "Ping team:" });
+  await pingRolesInThread(threadId);
+  created = true;
   state[key] = { ...(state[key] || {}), thread_id: threadId, publisher_name: publisherName };
   console.log(`🧵 Tạo thread publisher: ${threadName} (${threadId})`);
-  return threadId;
+  return { threadId, created };
 }
 
 async function listIOSAppsByPublisher(artistId) {
@@ -227,7 +229,7 @@ async function main() {
       publisherName = r.publisherName; current = r.apps;
     }
 
-    const threadId = await ensurePublisherThread(platform, publisher_id, publisherName, state);
+    const { threadId, created } = await ensurePublisherThread(platform, publisher_id, publisherName, state);
 
     console.log(`👤 Publisher: ${publisherName} (${key}) — đang kiểm tra...`);
     const currentIds = new Set(current.map(x => x.id));
@@ -238,6 +240,10 @@ async function main() {
     if (!firstRun && newIds.length) {
       hasNew = true;
       console.log(`   🎯 Có ${newIds.length} app mới: ${newIds.slice(0, 5).join(", ")}...`);
+
+      if (!created) {
+        await pingRolesInThread(threadId);
+      }
 
       // Gom embeds
       const embeds = [];
