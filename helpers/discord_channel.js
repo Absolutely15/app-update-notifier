@@ -1,5 +1,6 @@
 // helpers/discord_channel.js
 import { getChannelSafe, unarchiveThread } from "./discord_bot.js";
+import { pickChannelIdFromConfig, getAllRoleIdsFromConfig } from "./discord_config.js";
 import axios from "axios";
 
 const API = "https://discord.com/api/v10";
