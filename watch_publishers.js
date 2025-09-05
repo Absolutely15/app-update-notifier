@@ -113,7 +113,7 @@ async function sendDiscordBatch(embeds) {
 
 async function listIOSAppsByPublisher(artistId) {
   try {
-    const { data } = await axios.get(`https://itunes.apple.com/lookup?id=${artistId}&entity=software`, { timeout: 15000 });
+    const { data } = await axios.get(`https://itunes.apple.com/lookup?id=${artistId}&limit=200&entity=software`, { timeout: 15000 });
     const apps = [];
     let publisherName = "Không rõ";
     for (const it of (data.results || [])) {
