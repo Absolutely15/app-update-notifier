@@ -6,12 +6,12 @@ const API = "https://discord.com/api/v10";
 const AUTH = { headers: { Authorization: `Bot ${process.env.BOT_TOKEN}` } };
 
 // ---- Channel map loader & guards -------------------------------------------
-const MAP = JSON.parse(process.env.DISCORD_CHANNEL_MAP || "{}");
-
 export function pickChannelId(taskName, platform) {
-  const id = MAP?.[taskName]?.[platform];
-  if (!id) throw new Error(`No channelId for ${taskName}/${platform}`);
-  return id;
+  return pickChannelIdFromConfig(taskName, platform);
+}
+
+export function getRoleIds() {
+  return getAllRoleIdsFromConfig(); // trả về array role ids
 }
 
 

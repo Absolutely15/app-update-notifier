@@ -3,8 +3,10 @@ import fs from "fs";
 import axios from "axios";
 import Papa from "papaparse";
 import gplay from "google-play-scraper";
-import { createThreadInTextChannel, sendMessageToThread, getChannelSafe, unarchiveThread } from "./helpers/discord_bot.js";
+import { createThreadInTextChannel, sendMessageToThread, unarchiveThread } from "./helpers/discord_bot.js";
 import { pickChannelId, ensureThreadBelongsToChannel, reuseThreadByNameInThisChannel } from "./helpers/discord_channel.js";
+import { pingRolesInThread } from "./helpers/discord_notifications.js";
+import { loadDiscordConfig } from "./helpers/discord_config.js";
 
 // ===== CẤU HÌNH =====
 const STATE_FILE = "last_versions.json";
@@ -62,6 +64,7 @@ async function ensureAppThread(taskName, platform, appId, appDisplayName, state)
   }
   
   const threadId = await createThreadInTextChannel(channelId, threadName, 10080);
+  await pingRolesInThread(threadId, { extraText: "Ping team:" });
   state[appId] = { ...(state[appId] || {}), thread_id: threadId };
   console.log(`🧵 Tạo thread game: ${threadName} (${threadId})`);
   return threadId;
@@ -106,8 +109,8 @@ async function loadAppsConfig() {
 function formatDate(value) {
   if (!value) return "Không rõ";
   if (typeof value === "string") {
-    //const iso = value.replace("Z", "");
-    const d1 = new Date(value);
+    const iso = value.replace("Z", "");
+    const d1 = new Date(iso);
     if (!isNaN(d1)) return d1.toLocaleDateString("vi-VN");
     const d2 = new Date(value);
     if (!isNaN(d2)) return d2.toLocaleDateString("vi-VN");
@@ -195,6 +198,7 @@ async function sendDiscordEmbed(threadId, appName, platform, oldVersion, info) {
 
 async function main() {
   console.log("🔄 Bắt đầu kiểm tra cập nhật phiên bản ứng dụng...");
+  await loadDiscordConfig(); // load channel + role config
   const apps = await loadAppsConfig();
   console.log(`📋 Danh sách ứng dụng: ${apps.ios.length} iOS, ${apps.android.length} Android`);
 

@@ -3,8 +3,10 @@ import fs from "fs";
 import axios from "axios";
 import Papa from "papaparse";
 import gplay from "google-play-scraper";
-import { createThreadInTextChannel, sendMessageToThread, getChannelSafe, unarchiveThread } from "./helpers/discord_bot.js";
+import { createThreadInTextChannel, sendMessageToThread, unarchiveThread } from "./helpers/discord_bot.js";
 import { pickChannelId, ensureThreadBelongsToChannel, reuseThreadByNameInThisChannel } from "./helpers/discord_channel.js";
+import { pingRolesInThread } from "./helpers/discord_notifications.js";
+import { loadDiscordConfig } from "./helpers/discord_config.js";
 
 const PUBLISHERS_SHEET_URL = process.env.PUBLISHERS_SHEET_URL; // CSV: platform,publisher_id
 const PUBLISHERS_STATE_FILE = "publishers_state.json";
@@ -49,8 +51,8 @@ async function loadPublishersFromSheet(url) {
 function formatDate(value) {
   if (!value) return "Không rõ";
   if (typeof value === "string") {
-    //const iso = value.replace("Z", "");
-    const d1 = new Date(value);
+    const iso = value.replace("Z", "");
+    const d1 = new Date(iso);
     if (!isNaN(d1)) return d1.toLocaleDateString("vi-VN");
     const d2 = new Date(value);
     if (!isNaN(d2)) return d2.toLocaleDateString("vi-VN");
@@ -156,6 +158,7 @@ async function ensurePublisherThread(platform, publisherId, publisherName, state
   }
 
   const threadId = await createThreadInTextChannel(channelId, threadName, 10080);
+  await pingRolesInThread(threadId, { extraText: "Ping team:" });
   state[key] = { ...(state[key] || {}), thread_id: threadId, publisher_name: publisherName };
   console.log(`🧵 Tạo thread publisher: ${threadName} (${threadId})`);
   return threadId;
@@ -199,6 +202,7 @@ async function listAndroidAppsByPublisher(devId) {
 
 async function main() {
   console.log("🔄 Bắt đầu theo dõi publisher phát hành app mới...");
+  await loadDiscordConfig(); // load channel + role config
   const publishers = await loadPublishersFromSheet(PUBLISHERS_SHEET_URL);
   if (!publishers.length) { console.log("ℹ️ Danh sách publisher rỗng. Bỏ qua."); return; }
 

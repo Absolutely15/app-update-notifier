@@ -11,7 +11,8 @@ jobs:
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
       APPS_SHEET_URL: ${{ vars.APPS_SHEET_URL }}
       PUBLISHERS_SHEET_URL: ${{ vars.PUBLISHERS_SHEET_URL }}
-      DISCORD_CHANNEL_MAP: ${{ vars.DISCORD_CHANNEL_MAP }}
+      DISCORD_CHANNEL_SHEET_URL: ${{ vars.DISCORD_CHANNEL_SHEET_URL }}
+      DISCORD_ROLE_SHEET_URL: ${{ vars.DISCORD_ROLE_SHEET_URL }}
     runs-on: ubuntu-latest
     permissions:
       actions: write # Cho phép job này quản lý cache
