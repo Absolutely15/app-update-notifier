@@ -3,9 +3,9 @@ import fs from "fs";
 import axios from "axios";
 import Papa from "papaparse";
 import gplay from "google-play-scraper";
-import { postDiscord } from "./helpers/discord.js";
+import { createThreadInTextChannel, sendMessageToThread, getChannelSafe, unarchiveThread } from "./helpers/discord_bot.js";
+import { pickChannelId } from "./helpers/channel_picker.js";
 
-const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || "https://discord.com/api/webhooks/xxx/yyy";
 const PUBLISHERS_SHEET_URL = process.env.PUBLISHERS_SHEET_URL; // CSV: platform,publisher_id
 const PUBLISHERS_STATE_FILE = "publishers_state.json";
 
@@ -48,8 +48,20 @@ async function loadPublishersFromSheet(url) {
 
 function formatDate(value) {
   if (!value) return "Không rõ";
-  const d = new Date(value);
-  return isNaN(d) ? String(value) : d.toLocaleDateString("vi-VN");
+  if (typeof value === "string") {
+    const iso = value.replace("Z", "");
+    const d1 = new Date(iso);
+    if (!isNaN(d1)) return d1.toLocaleDateString("vi-VN");
+    const d2 = new Date(value);
+    if (!isNaN(d2)) return d2.toLocaleDateString("vi-VN");
+    return value;
+  }
+  if (typeof value === "number") {
+    const d = new Date(value > 32503680000 ? value : value * 1000);
+    return d.toLocaleDateString("vi-VN");
+  }
+  if (value instanceof Date) return value.toLocaleDateString("vi-VN");
+  return String(value);
 }
 
 async function getIOSInfo(appId) {
@@ -61,7 +73,7 @@ async function getIOSInfo(appId) {
         name: a.trackName,
         version: a.version || "Không rõ",
         url: a.trackViewUrl,
-        icon: a.artworkUrl100,
+        icon: a.artworkUrl512,
         releaseNotes: a.releaseNotes || "",
         releaseDate: formatDate(a.currentVersionReleaseDate),
         developer: a.artistName || "Không rõ",
@@ -99,16 +111,37 @@ function buildAppUrl(platform, appId, infoUrl) {
     : `https://play.google.com/store/apps/details?id=${appId}`;
 }
 
-async function sendDiscordBatch(embeds) {
-  // Gửi theo lô 10 embeds / request, có gap nhỏ giữa các lô
+async function sendThreadBatch(threadId, embeds) {
   for (let i = 0; i < embeds.length; i += 10) {
-    const chunk = embeds.slice(i, i + 10);
-    await postDiscord(DISCORD_WEBHOOK_URL, { embeds: chunk });
-    if (i + 10 < embeds.length) {
-      const gap = 300 + Math.floor(Math.random() * 300); // 300–600ms
-      await new Promise(r => setTimeout(r, gap));
+   const chunk = embeds.slice(i, i + 10);
+     try {
+     await sendMessageToThread(threadId, { embeds: chunk });
+    } catch (e) {
+     console.log("❌ Lỗi gửi batch vào thread:", e.message);
+     await new Promise(r => setTimeout(r, 1200));
+      try { await sendMessageToThread(threadId, { embeds: chunk }); } catch {}
+    }
+    if (i + 10 < embeds.length) await new Promise(r => setTimeout(r, 1200));
+  }
+}
+
+async function ensurePublisherThread(platform, publisherId, publisherName, state) {
+  const key = `${platform}:${publisherId}`;
+  const entry = state[key] || {};
+  if (entry.thread_id) {
+    const info = await getChannelSafe(entry.thread_id);
+    if (info) {
+      const meta = info.thread_metadata || {};
+      if (meta.archived && !meta.locked) await unarchiveThread(entry.thread_id, 10080);
+      return entry.thread_id; // ✅ reuse
     }
   }
+  const channelId = pickChannelId("watch_publisher", platform);
+  const name = `${publisherName} — ${platform === "ios" ? "iOS" : "Android"} — New Apps`;
+  const threadId = await createThreadInTextChannel(channelId, name, 10080);
+  state[key] = { ...(state[key] || {}), thread_id: threadId, publisher_name: publisherName };
+  console.log(`🧵 Tạo thread publisher: ${name} (${threadId})`);
+  return threadId;
 }
 
 async function listIOSAppsByPublisher(artistId) {
@@ -201,7 +234,7 @@ async function main() {
             `**App:** ${item.name}\n` +
             `**Version:** \`${safe.version || "Không rõ"}\`\n` +
             `**Release Date:** ${safe.releaseDate || "Không rõ"}\n\n` +
-            `**Genres:** ${info.genres || "Không rõ"}\n\n` +
+            `**Genres:** ${safe.genres || "Không rõ"}\n\n` +
             `**Release Notes:**\n${(safe.releaseNotes || "").slice(0, 800)}`,
           color: 0x5865f2,
           thumbnail: { url: safe.icon || "" },
@@ -211,7 +244,8 @@ async function main() {
         embeds.push(embed);
       }
 
-      await sendDiscordBatch(embeds);
+    const threadId = await ensurePublisherThread(platform, publisher_id, publisherName, state);
+    await sendThreadBatch(threadId, embeds);
     } else if (!firstRun) {
       console.log("   ✅ Chưa có app mới.");
     } else {
@@ -220,6 +254,7 @@ async function main() {
 
     // Luôn cập nhật snapshot state
     state[key] = {
+      ...(state[key] || {}),
       publisher_name: publisherName,
       app_ids: [...currentIds].sort(),
       checked_at: new Date().toISOString().slice(0, 19).replace("T", " ")

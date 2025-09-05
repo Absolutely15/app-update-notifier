@@ -3,21 +3,25 @@ import fs from "fs";
 import axios from "axios";
 import Papa from "papaparse";
 import gplay from "google-play-scraper";
-import { postDiscord } from "./helpers/discord.js";
+import { createThreadInTextChannel, sendMessageToThread, getChannelSafe, unarchiveThread } from "./helpers/discord_bot.js";
+import { pickChannelId } from "./helpers/channel_picker.js";
 
 // ===== CẤU HÌNH =====
-const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || "https://discord.com/api/webhooks/xxx/yyy";
 const STATE_FILE = "last_versions.json";
 const APPS_SHEET_URL = process.env.APPS_SHEET_URL; // CSV: platform,id,name_fallback
-const APPS_CONFIG = process.env.APPS_CONFIG;       // JSON string (optional)
+
 // =====================
 
 function loadState() {
   try {
     if (fs.existsSync(STATE_FILE)) {
       const raw = fs.readFileSync(STATE_FILE, "utf8").trim();
-      if (!raw) return {}; // file rỗng
-      return JSON.parse(raw);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      for (const k of Object.keys(parsed)) {
+        if (typeof parsed[k] === "string") parsed[k] = { version: parsed[k] };
+      }
+      return parsed;
     }
   } catch (e) { console.log("❌ Lỗi load state:", e.message); }
   return {};
@@ -28,6 +32,25 @@ function saveState(state) {
     fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
     console.log(`💾 Đã lưu state vào ${STATE_FILE}`);
   } catch (e) { console.log("❌ Lỗi lưu state:", e.message); }
+}
+
+async function ensureAppThread(taskName, platform, appId, appDisplayName, state) {
+  const entry = state[appId] || {};
+  if (entry.thread_id) {
+    const info = await getChannelSafe(entry.thread_id);
+    if (info) {
+      const meta = info.thread_metadata || {};
+      if (meta.archived && !meta.locked) await unarchiveThread(entry.thread_id, 10080);
+      return entry.thread_id; // ✅ reuse
+    }
+    // thread_id cũ 404 → coi như chưa tồn tại
+  }
+  const channelId = pickChannelId(taskName, platform);
+  const name = `${appDisplayName} — ${platform === "ios" ? "iOS" : "Android"} Updates`;
+  const threadId = await createThreadInTextChannel(channelId, name, 10080);
+  state[appId] = { ...(state[appId] || {}), thread_id: threadId };
+  console.log(`🧵 Tạo thread game: ${name} (${threadId})`);
+  return threadId;
 }
 
 async function loadAppsFromSheet(url) {
@@ -58,15 +81,6 @@ async function loadAppsConfig() {
     const cfg = await loadAppsFromSheet(APPS_SHEET_URL);
     if (cfg) return cfg;
     console.log("⚠️ Sheet lỗi/trống. Dùng APPS_CONFIG nếu có.");
-  }
-  if (APPS_CONFIG) {
-    try {
-      const cfg = JSON.parse(APPS_CONFIG);
-      console.log(`✅ Đã tải cấu hình từ APPS_CONFIG: ${cfg.ios?.length || 0} iOS, ${cfg.android?.length || 0} Android`);
-      return cfg;
-    } catch (e) {
-      console.log("❌ Lỗi parse APPS_CONFIG:", e.message);
-    }
   }
   console.log("⚠️ Dùng cấu hình mặc định cứng.");
   return {
@@ -102,7 +116,7 @@ async function getIOSInfo(appId) {
         name: a.trackName,
         version: a.version,
         url: a.trackViewUrl,
-        icon: a.artworkUrl100,
+        icon: a.artworkUrl512,
         releaseNotes: a.releaseNotes || "",
         releaseDate: formatDate(a.currentVersionReleaseDate),
         developer: a.artistName || "Không rõ",
@@ -139,7 +153,7 @@ async function getAndroidInfo(pkg) {
   }
 }
 
-async function sendDiscordEmbed(appName, platform, oldVersion, info) {
+async function sendDiscordEmbed(threadId, appName, platform, oldVersion, info) {
   try {
     const embed = {
       title: `📢 ${appName} (${platform}) vừa cập nhật!`,
@@ -158,7 +172,7 @@ async function sendDiscordEmbed(appName, platform, oldVersion, info) {
     };
     if (info.screenshot) embed.image = { url: info.screenshot };
 
-    await postDiscord(DISCORD_WEBHOOK_URL, { embeds: [embed] });
+    await sendMessageToThread(threadId, { embeds: [embed] });
     console.log(`✅ Đã gửi thông báo Discord cho ${appName} (${platform})`);
   } catch (e) {
     console.log("❌ Lỗi gửi Discord:", e.message);
@@ -183,13 +197,14 @@ async function main() {
     console.log(`   🔍 ${a.name_fallback}...`);
     const info = await getIOSInfo(a.id);
     if (!info) { console.log("    ⚠️ Không lấy được thông tin."); continue; }
-    const old = state[a.id];
+    const old = (state[a.id]?.version) || state[a.id];
     console.log(`    - Cũ: ${old || "N/A"} | Mới: ${info.version} | Khác nhau: ${info.version !== old}`);
     if (info.version !== old) {
       if (!firstRun) {
-        await sendDiscordEmbed(info.name, "iOS", old, info);
+        const threadId = await ensureAppThread("check_app_updates", "ios", a.id, info.name || a.name_fallback, state);
+        await sendDiscordEmbed(threadId, info.name || a.name_fallback, "iOS", old, info);
       }
-      state[a.id] = info.version;
+      state[a.id] = { ...(state[a.id] || {}), version: info.version };
       changed = true;
     }
   }
@@ -199,13 +214,14 @@ async function main() {
     console.log(`   🔍 ${a.name_fallback}...`);
     const info = await getAndroidInfo(a.id);
     if (!info) { console.log("    ⚠️ Không lấy được thông tin."); continue; }
-    const old = state[a.id];
+    const old = (state[a.id]?.version) || state[a.id];
     console.log(`    - Cũ: ${old || "N/A"} | Mới: ${info.version} | Khác nhau: ${info.version !== old}`);
     if (info.version !== old) {
       if (!firstRun) {
-        await sendDiscordEmbed(info.name, "Android", old, info);
+         const threadId = await ensureAppThread("check_app_updates", "android", a.id, info.name || a.name_fallback, state);
+         await sendDiscordEmbed(threadId, info.name || a.name_fallback, "Android", old, info);
       }
-      state[a.id] = info.version;
+      state[a.id] = { ...(state[a.id] || {}), version: info.version };
       changed = true;
     }
   }
