@@ -204,21 +204,12 @@ async function main() {
     console.log(`   🔍 ${a.name_fallback}...`);
     const info = await getIOSInfo(a.id);
     if (!info) { console.log("    ⚠️ Không lấy được thông tin."); continue; }
-    if (firstRun) {
-      try {
-        const tid = await ensureAppThread("check_app_updates", "ios", a.id, info.name || a.name_fallback, state);
-        console.log(`🧵 (First run) Đã tạo thread sẵn cho ${info.name || a.name_fallback}: ${tid}`);
-      } catch (e) {
-        console.log(`⚠️ Không tạo được thread (first run) cho ${info.name || a.name_fallback}:`, e.message);
-      }
-    }
-
+    const iosThreadId = await ensureAppThread("check_app_updates", "ios", a.id, info.name || a.name_fallback, state);
     const old = (state[a.id]?.version) || state[a.id];
     console.log(`    - Cũ: ${old || "N/A"} | Mới: ${info.version} | Khác nhau: ${info.version !== old}`);
     if (info.version !== old) {
       if (!firstRun) {
-        const threadId = await ensureAppThread("check_app_updates", "ios", a.id, info.name || a.name_fallback, state);
-        await sendDiscordEmbed(threadId, info.name || a.name_fallback, "iOS", old, info);
+        await sendDiscordEmbed(iosThreadId, info.name || a.name_fallback, "iOS", old, info);
       }
       state[a.id] = { ...(state[a.id] || {}), version: info.version };
       changed = true;
@@ -230,20 +221,12 @@ async function main() {
     console.log(`   🔍 ${a.name_fallback}...`);
     const info = await getAndroidInfo(a.id);
     if (!info) { console.log("    ⚠️ Không lấy được thông tin."); continue; }
-    if (firstRun) {
-      try {
-        const tid = await ensureAppThread("check_app_updates", "android", a.id, info.name || a.name_fallback, state);
-        console.log(`🧵 (First run) Đã tạo thread sẵn cho ${info.name || a.name_fallback}: ${tid}`);
-      } catch (e) {
-        console.log(`⚠️ Không tạo được thread (first run) cho ${info.name || a.name_fallback}:`, e.message);
-      }
-    }
+    const androidThreadId = await ensureAppThread("check_app_updates", "android", a.id, info.name || a.name_fallback, state);
     const old = (state[a.id]?.version) || state[a.id];
     console.log(`    - Cũ: ${old || "N/A"} | Mới: ${info.version} | Khác nhau: ${info.version !== old}`);
     if (info.version !== old) {
       if (!firstRun) {
-         const threadId = await ensureAppThread("check_app_updates", "android", a.id, info.name || a.name_fallback, state);
-         await sendDiscordEmbed(threadId, info.name || a.name_fallback, "Android", old, info);
+         await sendDiscordEmbed(androidThreadId, info.name || a.name_fallback, "Android", old, info);
       }
       state[a.id] = { ...(state[a.id] || {}), version: info.version };
       changed = true;

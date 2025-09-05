@@ -145,7 +145,7 @@ async function ensurePublisherThread(platform, publisherId, publisherName, state
         console.log(`↪️ Thread cũ không hợp lệ (${check.reason}) → tạo mới trong channel đúng.`);
     }
   }
-  const name = `${publisherName} — ${platform === "ios" ? "iOS" : "Android"} — New Apps`;
+  const name = `${publisherName} — ${platform === "ios" ? "iOS" : "Android"} — New Games`;
   const threadId = await createThreadInTextChannel(channelId, name, 10080);
   state[key] = { ...(state[key] || {}), thread_id: threadId, publisher_name: publisherName };
   console.log(`🧵 Tạo thread publisher: ${name} (${threadId})`);
@@ -214,14 +214,7 @@ async function main() {
       publisherName = r.publisherName; current = r.apps;
     }
 
-    if (firstRun) {
-      try {
-      const tid = await ensurePublisherThread(platform, publisher_id, publisherName, state);
-          console.log(`🧵 (First run) Đã tạo thread sẵn cho ${publisherName}: ${tid}`);
-        } catch (e) {
-          console.log(`⚠️ Không tạo được thread (first run) cho ${publisherName}:`, e.message);
-          }
-    }
+    const threadId = await ensurePublisherThread(platform, publisher_id, publisherName, state);
 
     console.log(`👤 Publisher: ${publisherName} (${key}) — đang kiểm tra...`);
     const currentIds = new Set(current.map(x => x.id));
@@ -261,7 +254,6 @@ async function main() {
         embeds.push(embed);
       }
 
-    const threadId = await ensurePublisherThread(platform, publisher_id, publisherName, state);
     await sendThreadBatch(threadId, embeds);
     } else if (!firstRun) {
       console.log("   ✅ Chưa có app mới.");
