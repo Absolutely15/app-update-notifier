@@ -4,7 +4,7 @@ import axios from "axios";
 import Papa from "papaparse";
 import gplay from "google-play-scraper";
 import { createThreadInTextChannel, sendMessageToThread, getChannelSafe, unarchiveThread } from "./helpers/discord_bot.js";
-import { pickChannelId } from "./helpers/channel_picker.js";
+import { pickChannelId, ensureThreadBelongsToChannel } from "./helpers/discord_channel.js";
 
 const PUBLISHERS_SHEET_URL = process.env.PUBLISHERS_SHEET_URL; // CSV: platform,publisher_id
 const PUBLISHERS_STATE_FILE = "publishers_state.json";
@@ -128,15 +128,23 @@ async function sendThreadBatch(threadId, embeds) {
 async function ensurePublisherThread(platform, publisherId, publisherName, state) {
   const key = `${platform}:${publisherId}`;
   const entry = state[key] || {};
+  const channelId = pickChannelId("watch_publisher", platform);
   if (entry.thread_id) {
-    const info = await getChannelSafe(entry.thread_id);
-    if (info) {
-      const meta = info.thread_metadata || {};
-      if (meta.archived && !meta.locked) await unarchiveThread(entry.thread_id, 10080);
-      return entry.thread_id; // ✅ reuse
+    // 1) Tồn tại & đúng channel?
+    const check = await ensureThreadBelongsToChannel(entry.thread_id, channelId);
+    if (check.ok) {
+      const meta = check.info.thread_metadata || {};
+      if (meta.locked) {
+        console.log("🔒 Thread cũ locked → tạo mới.");
+      } else {
+        if (meta.archived) await unarchiveThread(entry.thread_id, 10080);
+        return entry.thread_id; // ✅ reuse
+      }
+    } else {
+      // not_found / wrong_parent / not_thread
+        console.log(`↪️ Thread cũ không hợp lệ (${check.reason}) → tạo mới trong channel đúng.`);
     }
   }
-  const channelId = pickChannelId("watch_publisher", platform);
   const name = `${publisherName} — ${platform === "ios" ? "iOS" : "Android"} — New Apps`;
   const threadId = await createThreadInTextChannel(channelId, name, 10080);
   state[key] = { ...(state[key] || {}), thread_id: threadId, publisher_name: publisherName };
@@ -204,6 +212,15 @@ async function main() {
     } else {
       const r = await listAndroidAppsByPublisher(publisher_id);
       publisherName = r.publisherName; current = r.apps;
+    }
+
+    if (firstRun) {
+      try {
+      const tid = await ensurePublisherThread(platform, publisher_id, publisherName, state);
+          console.log(`🧵 (First run) Đã tạo thread sẵn cho ${publisherName}: ${tid}`);
+        } catch (e) {
+          console.log(`⚠️ Không tạo được thread (first run) cho ${publisherName}:`, e.message);
+          }
     }
 
     console.log(`👤 Publisher: ${publisherName} (${key}) — đang kiểm tra...`);

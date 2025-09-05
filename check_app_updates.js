@@ -4,7 +4,7 @@ import axios from "axios";
 import Papa from "papaparse";
 import gplay from "google-play-scraper";
 import { createThreadInTextChannel, sendMessageToThread, getChannelSafe, unarchiveThread } from "./helpers/discord_bot.js";
-import { pickChannelId } from "./helpers/channel_picker.js";
+import { pickChannelId, ensureThreadBelongsToChannel } from "./helpers/discord_channel.js";
 
 // ===== CẤU HÌNH =====
 const STATE_FILE = "last_versions.json";
@@ -36,16 +36,23 @@ function saveState(state) {
 
 async function ensureAppThread(taskName, platform, appId, appDisplayName, state) {
   const entry = state[appId] || {};
-  if (entry.thread_id) {
-    const info = await getChannelSafe(entry.thread_id);
-    if (info) {
-      const meta = info.thread_metadata || {};
-      if (meta.archived && !meta.locked) await unarchiveThread(entry.thread_id, 10080);
-      return entry.thread_id; // ✅ reuse
-    }
-    // thread_id cũ 404 → coi như chưa tồn tại
-  }
   const channelId = pickChannelId(taskName, platform);
+
+  if (entry.thread_id) {
+   const check = await ensureThreadBelongsToChannel(entry.thread_id, channelId);
+   if (check.ok) {
+     const meta = check.info.thread_metadata || {};
+     if (meta.locked) {
+       console.log("🔒 Thread cũ locked → tạo mới.");
+     } else {
+       if (meta.archived) await unarchiveThread(entry.thread_id, 10080);
+       return entry.thread_id; // ✅ reuse
+    }
+   } else {
+     console.log(`↪️ Thread cũ không hợp lệ (${check.reason}) → tạo mới trong channel đúng.`);
+   }
+  }
+  
   const name = `${appDisplayName} — ${platform === "ios" ? "iOS" : "Android"} Updates`;
   const threadId = await createThreadInTextChannel(channelId, name, 10080);
   state[appId] = { ...(state[appId] || {}), thread_id: threadId };
@@ -197,6 +204,15 @@ async function main() {
     console.log(`   🔍 ${a.name_fallback}...`);
     const info = await getIOSInfo(a.id);
     if (!info) { console.log("    ⚠️ Không lấy được thông tin."); continue; }
+    if (firstRun) {
+      try {
+        const tid = await ensureAppThread("check_app_updates", "ios", a.id, info.name || a.name_fallback, state);
+        console.log(`🧵 (First run) Đã tạo thread sẵn cho ${info.name || a.name_fallback}: ${tid}`);
+      } catch (e) {
+        console.log(`⚠️ Không tạo được thread (first run) cho ${info.name || a.name_fallback}:`, e.message);
+      }
+    }
+
     const old = (state[a.id]?.version) || state[a.id];
     console.log(`    - Cũ: ${old || "N/A"} | Mới: ${info.version} | Khác nhau: ${info.version !== old}`);
     if (info.version !== old) {
@@ -214,6 +230,14 @@ async function main() {
     console.log(`   🔍 ${a.name_fallback}...`);
     const info = await getAndroidInfo(a.id);
     if (!info) { console.log("    ⚠️ Không lấy được thông tin."); continue; }
+    if (firstRun) {
+      try {
+        const tid = await ensureAppThread("check_app_updates", "android", a.id, info.name || a.name_fallback, state);
+        console.log(`🧵 (First run) Đã tạo thread sẵn cho ${info.name || a.name_fallback}: ${tid}`);
+      } catch (e) {
+        console.log(`⚠️ Không tạo được thread (first run) cho ${info.name || a.name_fallback}:`, e.message);
+      }
+    }
     const old = (state[a.id]?.version) || state[a.id];
     console.log(`    - Cũ: ${old || "N/A"} | Mới: ${info.version} | Khác nhau: ${info.version !== old}`);
     if (info.version !== old) {
