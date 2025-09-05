@@ -61,7 +61,7 @@ async function ensureAppThread(taskName, platform, appId, appDisplayName, state)
   if (reused) {
     state[appId] = { ...(state[appId] || {}), thread_id: reused };
     console.log(`♻️ Dùng lại thread theo tên trong channel: ${threadName} (${reused})`);
-    return { threadId: entry.thread_id, created };
+    return { threadId: reused, created };
   }
   
   const threadId = await createThreadInTextChannel(channelId, threadName, 10080);

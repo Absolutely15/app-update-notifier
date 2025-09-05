@@ -155,7 +155,7 @@ async function ensurePublisherThread(platform, publisherId, publisherName, state
   if (reused) {
     state[key] = { ...(state[key] || {}), thread_id: reused, publisher_name: publisherName };
     console.log(`♻️ Dùng lại thread theo tên trong channel: ${threadName} (${reused})`);
-    return { threadId: entry.thread_id, created };
+    return { threadId: reused, created };
   }
 
   const threadId = await createThreadInTextChannel(channelId, threadName, 10080);
