@@ -209,10 +209,6 @@ async function main() {
   if (!publishers.length) { console.log("ℹ️ Danh sách publisher rỗng. Bỏ qua."); return; }
 
   const state = loadState();
-  const firstRun = !fs.existsSync(PUBLISHERS_STATE_FILE) || Object.keys(state).length === 0;
-  if (firstRun) {
-    console.log("🆕 Lần chạy đầu (publishers state rỗng) → chỉ lưu snapshot, KHÔNG gửi Discord.");
-  }
 
   let hasNew = false;
 
@@ -230,14 +226,15 @@ async function main() {
     }
 
     const { threadId, created } = await ensurePublisherThread(platform, publisher_id, publisherName, state);
+    const firstForThisPublisher = !state[key] || !(state[key]?.app_ids?.length > 0);
 
-    console.log(`👤 Publisher: ${publisherName} (${key}) — đang kiểm tra...`);
+    console.log(`👤 Publisher: ${publisherName} (${key}) — đang kiểm tra... | First=${firstForThisPublisher}`);
     const currentIds = new Set(current.map(x => x.id));
     const prevIds = new Set((state[key]?.app_ids || []));
 
     const newIds = [...currentIds].filter(id => !prevIds.has(id));
 
-    if (!firstRun && newIds.length) {
+    if (!firstForThisPublisher && newIds.length) {
       hasNew = true;
       console.log(`   🎯 Có ${newIds.length} app mới: ${newIds.slice(0, 5).join(", ")}...`);
 
@@ -274,10 +271,10 @@ async function main() {
       }
 
     await sendThreadBatch(threadId, embeds);
-    } else if (!firstRun) {
-      console.log("   ✅ Chưa có app mới.");
+    } else if (firstForThisPublisher) {
+      console.log("   Publisher mới → chỉ snapshot, không gửi embeds.");
     } else {
-      console.log("   (First run) Bỏ qua gửi Discord cho publisher này.");
+      console.log("   ✅ Chưa có app mới.");
     }
 
     // Luôn cập nhật snapshot state
@@ -292,7 +289,7 @@ async function main() {
   // Lưu state (kể cả firstRun)
   saveState(state);
 
-  if (!firstRun && !hasNew) {
+  if (!hasNew) {
     console.log("ℹ️ Không phát hiện app mới nào từ các publisher.");
   }
 }

@@ -205,10 +205,6 @@ async function main() {
   console.log(`📋 Danh sách ứng dụng: ${apps.ios.length} iOS, ${apps.android.length} Android`);
 
   const state = loadState();
-  const firstRun = !fs.existsSync(STATE_FILE) || Object.keys(state).length === 0;
-  if (firstRun) {
-    console.log("🆕 Lần chạy đầu (state rỗng) → chỉ lưu snapshot, KHÔNG gửi Discord.");
-  }
 
   let changed = false;
 
@@ -219,9 +215,10 @@ async function main() {
     if (!info) { console.log("    ⚠️ Không lấy được thông tin."); continue; }
     const { threadId: iosThreadId, created: iosCreated } = await ensureAppThread("check_app_updates", "ios", a.id, info.name || a.name_fallback, state);
     const old = (state[a.id]?.version) || state[a.id];
+    const first = !state[a.id]; // 👈 app này chưa từng có trong state
     console.log(`    - Cũ: ${old || "N/A"} | Mới: ${info.version} | Khác nhau: ${info.version !== old}`);
     if (info.version !== old) {
-      if (!firstRun) {
+      if (!first) {
         if (!iosCreated){
           await pingRolesInThread(iosThreadId);
         }
@@ -239,9 +236,10 @@ async function main() {
     if (!info) { console.log("    ⚠️ Không lấy được thông tin."); continue; }
     const { threadId: androidThreadId, created: androidCreated } = await ensureAppThread("check_app_updates", "android", a.id, info.name || a.name_fallback, state);
     const old = (state[a.id]?.version) || state[a.id];
+    const first = !state[a.id]; // 👈 app này chưa từng có trong state
     console.log(`    - Cũ: ${old || "N/A"} | Mới: ${info.version} | Khác nhau: ${info.version !== old}`);
     if (info.version !== old) {
-      if (!firstRun) {
+      if (!first) {
         if (!androidCreated){
           await pingRolesInThread(androidThreadId);
         }
