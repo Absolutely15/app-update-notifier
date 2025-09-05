@@ -1,5 +1,5 @@
 // helpers/discord_channel.js
-import { getChannelSafe } from "./helpers/discord_bot.js";
+import { getChannelSafe } from "./discord_bot.js";
 
 // ---- Channel map loader & guards -------------------------------------------
 const MAP = JSON.parse(process.env.DISCORD_CHANNEL_MAP || "{}");
