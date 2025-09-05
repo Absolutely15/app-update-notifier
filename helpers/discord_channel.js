@@ -1,5 +1,9 @@
 // helpers/discord_channel.js
-import { getChannelSafe } from "./discord_bot.js";
+import { getChannelSafe, unarchiveThread } from "./discord_bot.js";
+import axios from "axios";
+
+const API = "https://discord.com/api/v10";
+const AUTH = { headers: { Authorization: `Bot ${process.env.BOT_TOKEN}` } };
 
 // ---- Channel map loader & guards -------------------------------------------
 const MAP = JSON.parse(process.env.DISCORD_CHANNEL_MAP || "{}");
