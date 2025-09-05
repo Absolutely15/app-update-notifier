@@ -132,7 +132,7 @@ async function ensurePublisherThread(platform, publisherId, publisherName, state
   const key = `${platform}:${publisherId}`;
   const entry = state[key] || {};
   const channelId = pickChannelId("watch_publisher", platform);
-  const threadName = `${publisherName} — ${platform === "ios" ? "iOS" : "Android"} — New Games`;
+  const threadName = `${publisherName}`;
 
   if (entry.thread_id) {
     // 1) Tồn tại & đúng channel?
