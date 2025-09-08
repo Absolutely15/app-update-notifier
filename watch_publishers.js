@@ -159,7 +159,6 @@ async function ensurePublisherThread(platform, publisherId, publisherName, state
   }
 
   const threadId = await createThreadInTextChannel(channelId, threadName, 10080);
-  await pingRolesInThread(threadId);
   created = true;
   state[key] = { ...(state[key] || {}), thread_id: threadId, publisher_name: publisherName };
   console.log(`🧵 Tạo thread publisher: ${threadName} (${threadId})`);

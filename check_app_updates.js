@@ -65,7 +65,6 @@ async function ensureAppThread(taskName, platform, appId, appDisplayName, state)
   }
   
   const threadId = await createThreadInTextChannel(channelId, threadName, 10080);
-  await pingRolesInThread(threadId);
   created = true;
   state[appId] = { ...(state[appId] || {}), thread_id: threadId };
   console.log(`🧵 Tạo thread game: ${threadName} (${threadId})`);
@@ -220,7 +219,7 @@ async function main() {
     if (!info) { console.log("    ⚠️ Không lấy được thông tin."); continue; }
     const { threadId: iosThreadId, created: iosCreated } = await ensureAppThread("check_app_updates", "ios", a.id, info.name || a.name_fallback, state);
     const old = getOldVersion(state[a.id]);
-    const first = !state[a.id] || !getOldVersion(state[a.id]); // 👈 app này chưa từng có trong state
+    const first = !state[a.id] || !old; // 👈 app này chưa từng có trong state
     const isDifferent = info.version !== old;
     console.log(`    - Cũ: ${old || "N/A"} | Mới: ${info.version} | Khác nhau: ${isDifferent}`);
     if (isDifferent) {
@@ -242,7 +241,7 @@ async function main() {
     if (!info) { console.log("    ⚠️ Không lấy được thông tin."); continue; }
     const { threadId: androidThreadId, created: androidCreated } = await ensureAppThread("check_app_updates", "android", a.id, info.name || a.name_fallback, state);
     const old = getOldVersion(state[a.id]);
-    const first = !state[a.id] || !getOldVersion(state[a.id]);
+    const first = !state[a.id] || !old;
     const isDifferent = info.version !== old;
     console.log(`    - Cũ: ${old || "N/A"} | Mới: ${info.version} | Khác nhau: ${isDifferent}`);
     if (isDifferent) {
