@@ -126,11 +126,61 @@ function formatDate(value) {
   return String(value);
 }
 
+// --- Scrape App Store web ---
+function pickFromSrcset(srcset) {
+  if (!srcset) return null;
+  const first = srcset.split(",")[0]?.trim();
+  return first ? first.split(" ")[0] : null;
+}
+
+async function scrapeAppStoreScreenshots(appId, limit = 1) {
+  const url = `https://apps.apple.com/app/id${appId}`;
+  const { data: html } = await axios.get(url, {
+    timeout: 20000,
+    maxRedirects: 5,
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
+    },
+  });
+
+  const $ = cheerio.load(html);
+  const urls = [];
+
+  // Nguồn chính: <picture><source srcset="...">
+  $(".we-screenshot-viewer__screenshots picture source").each((_, el) => {
+    if (urls.length >= limit) return false;
+    const u = pickFromSrcset($(el).attr("srcset") || $(el).attr("data-srcset"));
+    if (u) urls.push(u);
+  });
+
+  // Fallback: <img src>
+  if (urls.length < limit) {
+    $(".we-screenshot-viewer__screenshots img").each((_, el) => {
+      if (urls.length >= limit) return false;
+      const u = $(el).attr("src") || $(el).attr("data-src");
+      if (u) urls.push(u);
+    });
+  }
+
+  return urls;
+}
+
 async function getIOSInfo(appId) {
   try {
     const { data } = await axios.get(`https://itunes.apple.com/lookup?id=${appId}`, { timeout: 15000 });
     if (data.results && data.results.length) {
       const a = data.results[0];
+
+      let screenshot = null;
+      try {
+        const shots = await scrapeAppStoreScreenshots(appId, 1);
+        screenshot = shots[0] || null;
+      } catch (err) {
+        console.log(`⚠️ Lỗi scrape screenshot app ${appId}:`, err.message);
+        screenshot = (a.screenshotUrls || [null])[0];
+      }
+
       return {
         name: a.trackName,
         version: a.version,
@@ -141,7 +191,7 @@ async function getIOSInfo(appId) {
         developer: a.artistName || "Không rõ",
         developerUrl: a.artistViewUrl || a.trackViewUrl,
         genres: (a.genres || []).join(", ") || a.primaryGenreName || "Không rõ",
-        screenshot: (a.screenshotUrls || [null])[0]
+        screenshot
       };
     }
     return null;
