@@ -159,6 +159,7 @@ async function ensurePublisherThread(platform, publisherId, publisherName, state
   }
 
   const threadId = await createThreadInTextChannel(channelId, threadName, 10080);
+  //await pingRolesInThread(threadId);
   created = true;
   state[key] = { ...(state[key] || {}), thread_id: threadId, publisher_name: publisherName };
   console.log(`🧵 Tạo thread publisher: ${threadName} (${threadId})`);
@@ -185,7 +186,7 @@ async function listIOSAppsByPublisher(artistId) {
 
 async function listAndroidAppsByPublisher(devId) {
   try {
-    const items = await gplay.developer({ devId, num: 200, fullDetail: true });
+    const items = await gplay.developer({ devId, num: 200, fullDetail: false });
     const apps = [];
     let publisherName = "Không rõ";
     if (items && items.length) {

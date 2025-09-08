@@ -65,6 +65,7 @@ async function ensureAppThread(taskName, platform, appId, appDisplayName, state)
   }
   
   const threadId = await createThreadInTextChannel(channelId, threadName, 10080);
+  //await pingRolesInThread(threadId);
   created = true;
   state[appId] = { ...(state[appId] || {}), thread_id: threadId };
   console.log(`🧵 Tạo thread game: ${threadName} (${threadId})`);
