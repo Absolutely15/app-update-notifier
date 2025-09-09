@@ -3,6 +3,7 @@ import fs from "fs";
 import axios from "axios";
 import Papa from "papaparse";
 import gplay from "google-play-scraper";
+import * as cheerio from "cheerio";
 import { createThreadInTextChannel, sendMessageToThread, unarchiveThread } from "./helpers/discord_bot.js";
 import { pickChannelId, ensureThreadBelongsToChannel, reuseThreadByNameInThisChannel } from "./helpers/discord_channel.js";
 import { pingRolesInThread } from "./helpers/discord_notifications.js";
