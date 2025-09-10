@@ -8,6 +8,7 @@ import { createThreadInTextChannel, sendMessageToThread, unarchiveThread } from 
 import { pickChannelId, ensureThreadBelongsToChannel, reuseThreadByNameInThisChannel } from "./helpers/discord_channel.js";
 import { pingRolesInThread } from "./helpers/discord_notifications.js";
 import { loadDiscordConfig } from "./helpers/discord_config.js";
+import { fetchTextWithRetry } from "./helpers/utils.js";
 
 // ===== CẤU HÌNH =====
 const STATE_FILE = "last_versions.json";
@@ -75,8 +76,8 @@ async function ensureAppThread(taskName, platform, appId, appDisplayName, state)
 
 async function loadAppsFromSheet(url) {
   try {
-    const { data } = await axios.get(url, { timeout: 15000 });
-    const parsed = Papa.parse(data, { header: true, skipEmptyLines: false });
+    const csvText = await fetchTextWithRetry(url);
+    const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: false });
     const cfg = { ios: [], android: [] };
     for (const row of parsed.data) {
       const platform = (row.platform || "").trim().toLowerCase();

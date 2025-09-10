@@ -7,6 +7,7 @@ import { createThreadInTextChannel, sendMessageToThread, unarchiveThread } from 
 import { pickChannelId, ensureThreadBelongsToChannel, reuseThreadByNameInThisChannel } from "./helpers/discord_channel.js";
 import { pingRolesInThread } from "./helpers/discord_notifications.js";
 import { loadDiscordConfig } from "./helpers/discord_config.js";
+import { fetchTextWithRetry } from "./helpers/utils.js";
 
 const PUBLISHERS_SHEET_URL = process.env.PUBLISHERS_SHEET_URL; // CSV: platform,publisher_id
 const PUBLISHERS_STATE_FILE = "publishers_state.json";
@@ -21,6 +22,7 @@ function loadState() {
   } catch (e) { console.log("❌ Lỗi load publishers state:", e.message); }
   return {};
 }
+
 function saveState(s) {
   try {
     fs.writeFileSync(PUBLISHERS_STATE_FILE, JSON.stringify(s, null, 2));
@@ -31,8 +33,8 @@ function saveState(s) {
 async function loadPublishersFromSheet(url) {
   if (!url) return [];
   try {
-    const { data } = await axios.get(url, { timeout: 15000 });
-    const parsed = Papa.parse(data, { header: true, skipEmptyLines: false });
+    const csvText = await fetchTextWithRetry(url);
+    const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: false });
     const pubs = [];
     for (const row of parsed.data) {
       const platform = (row.platform || "").trim().toLowerCase();
@@ -43,7 +45,7 @@ async function loadPublishersFromSheet(url) {
     console.log(`✅ Đã tải ${pubs.length} publisher từ Google Sheet.`);
     return pubs;
   } catch (e) {
-    console.log("❌ Lỗi đọc sheet publisher:", e.message);
+    console.log("❌ Lỗi đọc sheet publisher (sau retry):", e.message);
     return [];
   }
 }
