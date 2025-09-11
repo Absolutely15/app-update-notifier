@@ -1,13 +1,14 @@
 import axios from "axios";
 import Papa from "papaparse";
+import { fetchTextWithRetry } from "./utils.js";
 
 let CHANNELS = {}; // { [task]: { ios: "id", android: "id" } }
 let ROLE_IDS = []; // [ "987...", "876..." ]
 let loaded = false;
 
 async function loadCsv(url) {
-  const { data } = await axios.get(url, { timeout: 15000 });
-  const parsed = Papa.parse(data, { header: true, skipEmptyLines: true });
+  const csvText = await fetchTextWithRetry(url);
+  const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
   return parsed.data || [];
 }
 
