@@ -261,7 +261,7 @@ async function main() {
             `**Platform:** ${platform}\n` +
             `**App:** ${item.name}\n` +
             `**Version:** \`${safe.version || "Không rõ"}\`\n` +
-            `**Release Date:** ${safe.releaseDate || "Không rõ"}\n\n` +
+            `**Release Date:** ${safe.releaseDate || "Không rõ"}\n` +
             `**Genres:** ${safe.genres || "Không rõ"}\n\n` +
             `**Release Notes:**\n${(safe.releaseNotes || "").slice(0, 800)}`,
           color: 0x5865f2,
