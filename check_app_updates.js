@@ -131,41 +131,127 @@ function formatDate(value) {
 // --- Scrape App Store web ---
 function pickFromSrcset(srcset) {
   if (!srcset) return null;
-  const first = srcset.split(",")[0]?.trim();
-  return first ? first.split(" ")[0] : null;
+
+  const parts = srcset.split(",").map((p) => p.trim());
+  let best = null;
+
+  for (const part of parts) {
+    const [url, size] = part.split(/\s+/);
+    const m = size && size.match(/(\d+)w/);
+    const w = m ? parseInt(m[1], 10) : 0;
+
+    if (!best || w > best.w) {
+      best = { url, w };
+    }
+  }
+
+  return best ? best.url : null;
+}
+
+function normalizeUrl(u, base) {
+  if (!u) return null;
+  if (u.startsWith("http://") || u.startsWith("https://")) return u;
+  try {
+    return new URL(u, base).href;
+  } catch {
+    return null;
+  }
 }
 
 async function scrapeAppStoreScreenshots(appId, limit = 1) {
-  const url = `https://apps.apple.com/app/id${appId}`;
-  const { data: html } = await axios.get(url, {
+  const pageUrl = `https://apps.apple.com/app/id${appId}`;
+
+  const res = await axios.get(pageUrl, {
     timeout: 20000,
     maxRedirects: 5,
     headers: {
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Accept":
+        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     },
   });
 
+  const html = res.data;
   const $ = cheerio.load(html);
-  const urls = [];
 
-  // Nguồn chính: <picture><source srcset="...">
-  $(".we-screenshot-viewer__screenshots picture source").each((_, el) => {
-    if (urls.length >= limit) return false;
-    const u = pickFromSrcset($(el).attr("srcset") || $(el).attr("data-srcset"));
-    if (u) urls.push(u);
+  const candidates = [];
+
+  const selectors = [
+    ".we-screenshot-viewer__screenshots img",
+    ".we-screenshot-viewer__screenshots source[srcset]",
+    "figure.we-artwork img",
+    "figure.we-artwork source[srcset]",
+    "picture source[srcset]",
+    "img[srcset]",
+    "img[src]",
+  ];
+
+  $(selectors.join(", ")).each((_, el) => {
+    const tag = el.name?.toLowerCase?.() || "";
+    const $el = $(el);
+
+    let rawUrl = null;
+    if (tag === "source") {
+      rawUrl =
+        pickFromSrcset($el.attr("srcset") || $el.attr("data-srcset")) || null;
+    } else {
+      rawUrl =
+        $el.attr("src") ||
+        $el.attr("data-src") ||
+        pickFromSrcset($el.attr("srcset") || $el.attr("data-srcset")) ||
+        null;
+    }
+
+    const url = normalizeUrl(rawUrl, pageUrl);
+    if (!url) return;
+
+    const alt = $el.attr("alt") || "";
+
+    candidates.push({ url, alt });
   });
 
-  // Fallback: <img src>
-  if (urls.length < limit) {
-    $(".we-screenshot-viewer__screenshots img").each((_, el) => {
-      if (urls.length >= limit) return false;
-      const u = $(el).attr("src") || $(el).attr("data-src");
-      if (u) urls.push(u);
-    });
+  const iconPattern =
+    /(icon|icons|badge|logo|apple-touch-icon|square|thumbnail|small|100x100|60x60|512x512|1024x1024)/i;
+  const screenshotKeywords =
+    /(screenshot|screen|iphone|ipad|android|screenshotUrls)/i;
+
+  const scored = candidates.map(({ url, alt }) => {
+    let score = 0;
+
+    // + điểm nếu có từ khóa screenshot
+    if (screenshotKeywords.test(alt)) score += 50;
+    if (screenshotKeywords.test(url)) score += 40;
+
+    // + điểm nếu là ảnh to (dựa trên pattern WxH trong URL)
+    const dimMatch = url.match(/(\d{2,4})x(\d{2,4})/);
+    if (dimMatch) {
+      const w = parseInt(dimMatch[1], 10);
+      const h = parseInt(dimMatch[2], 10);
+      if (w >= 300 || h >= 300) score += 30;
+      if (w >= 600 || h >= 600) score += 10; // ưu tiên siêu to
+    }
+
+    // - điểm nếu giống icon / logo nhỏ
+    if (iconPattern.test(url) || iconPattern.test(alt)) score -= 60;
+
+    return { url, score };
+  });
+
+  // sort theo score giảm dần
+  scored.sort((a, b) => b.score - a.score);
+
+  // unique URL + limit
+  const out = [];
+  for (const s of scored) {
+    if (!out.includes(s.url)) {
+      out.push(s.url);
+      if (out.length >= limit) break;
+    }
   }
 
-  return urls;
+  return out;
 }
 
 async function getIOSInfo(appId) {
