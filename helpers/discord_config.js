@@ -1,4 +1,3 @@
-import axios from "axios";
 import Papa from "papaparse";
 import { fetchTextWithRetry } from "./utils.js";
 

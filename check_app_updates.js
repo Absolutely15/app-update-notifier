@@ -2,13 +2,13 @@
 import fs from "fs";
 import axios from "axios";
 import Papa from "papaparse";
-import gplay from "google-play-scraper";
 import * as cheerio from "cheerio";
 import { createThreadInTextChannel, sendMessageToThread, unarchiveThread } from "./helpers/discord_bot.js";
 import { pickChannelId, ensureThreadBelongsToChannel, reuseThreadByNameInThisChannel } from "./helpers/discord_channel.js";
 import { pingRolesInThread } from "./helpers/discord_notifications.js";
 import { loadDiscordConfig } from "./helpers/discord_config.js";
 import { fetchTextWithRetry } from "./helpers/utils.js";
+import { formatDate, getIOSInfo as _getIOSInfo, getAndroidInfo } from "./helpers/app_info.js";
 
 // ===== CẤU HÌNH =====
 const STATE_FILE = "last_versions.json";
@@ -45,18 +45,18 @@ async function ensureAppThread(taskName, platform, appId, appDisplayName, state)
   const threadName = `${appDisplayName}`;
 
   if (entry.thread_id) {
-   const check = await ensureThreadBelongsToChannel(entry.thread_id, channelId);
-   if (check.ok) {
-     const meta = check.info.thread_metadata || {};
-     if (meta.locked) {
-       console.log("🔒 Thread cũ locked → tạo mới.");
-     } else {
-       if (meta.archived) await unarchiveThread(entry.thread_id, 10080);
-       return { threadId: entry.thread_id, created }; // ✅ reuse
+    const check = await ensureThreadBelongsToChannel(entry.thread_id, channelId);
+    if (check.ok) {
+      const meta = check.info.thread_metadata || {};
+      if (meta.locked) {
+        console.log("🔒 Thread cũ locked → tạo mới.");
+      } else {
+        if (meta.archived) await unarchiveThread(entry.thread_id, 10080);
+        return { threadId: entry.thread_id, created }; // ✅ reuse
+      }
+    } else {
+      console.log(`↪️ Thread cũ không hợp lệ (${check.reason}) → tạo mới trong channel đúng.`);
     }
-   } else {
-     console.log(`↪️ Thread cũ không hợp lệ (${check.reason}) → tạo mới trong channel đúng.`);
-   }
   }
   
   const reused = await reuseThreadByNameInThisChannel(channelId, threadName);
@@ -108,24 +108,6 @@ async function loadAppsConfig() {
     ios: [{ id: "1517783697", name_fallback: "Genshin Impact" }],
     android: [{ id: "com.miHoYo.GenshinImpact", name_fallback: "Genshin Impact" }]
   };
-}
-
-function formatDate(value) {
-  if (!value) return "Không rõ";
-  if (typeof value === "string") {
-    const iso = value.replace("Z", "");
-    const d1 = new Date(iso);
-    if (!isNaN(d1)) return d1.toLocaleDateString("vi-VN");
-    const d2 = new Date(value);
-    if (!isNaN(d2)) return d2.toLocaleDateString("vi-VN");
-    return value;
-  }
-  if (typeof value === "number") {
-    const d = new Date(value > 32503680000 ? value : value * 1000);
-    return d.toLocaleDateString("vi-VN");
-  }
-  if (value instanceof Date) return value.toLocaleDateString("vi-VN");
-  return String(value);
 }
 
 // --- Scrape App Store web ---
@@ -254,60 +236,9 @@ async function scrapeAppStoreScreenshots(appId, limit = 1) {
   return out;
 }
 
+// Wrapper: getIOSInfo with screenshot scraping
 async function getIOSInfo(appId) {
-  try {
-    const { data } = await axios.get(`https://itunes.apple.com/lookup?id=${appId}`, { timeout: 15000 });
-    if (data.results && data.results.length) {
-      const a = data.results[0];
-
-      let screenshot = null;
-      try {
-        const shots = await scrapeAppStoreScreenshots(appId, 1);
-        screenshot = shots[0] || null;
-      } catch (err) {
-        console.log(`⚠️ Lỗi scrape screenshot app ${appId}:`, err.message);
-        screenshot = (a.screenshotUrls || [null])[0];
-      }
-
-      return {
-        name: a.trackName,
-        version: a.version,
-        url: a.trackViewUrl,
-        icon: a.artworkUrl512,
-        releaseNotes: a.releaseNotes || "",
-        releaseDate: formatDate(a.currentVersionReleaseDate),
-        developer: a.artistName || "Không rõ",
-        developerUrl: a.artistViewUrl || a.trackViewUrl,
-        genres: (a.genres || []).join(", ") || a.primaryGenreName || "Không rõ",
-        screenshot
-      };
-    }
-    return null;
-  } catch (e) {
-    console.log(`❌ Lỗi iOS app ${appId}:`, e.message);
-    return null;
-  }
-}
-
-async function getAndroidInfo(pkg) {
-  try {
-    const r = await gplay.app({ appId: pkg }); // mặc định US/en
-    return {
-      name: r.title,
-      version: r.version || "Không rõ",
-      url: r.url,
-      icon: r.icon,
-      releaseNotes: r.recentChanges || "",
-      releaseDate: formatDate(r.updated),
-      developer: r.developer || "Không rõ",
-      developerUrl: r.developerId ? `https://play.google.com/store/apps/dev?id=${r.developerId}` : r.url,
-      genres: r.genre || "Không rõ",
-      screenshot: (r.screenshots && r.screenshots[0]) || null
-    };
-  } catch (e) {
-    console.log(`❌ Lỗi Android app ${pkg}:`, e.message);
-    return null;
-  }
+  return _getIOSInfo(appId, { scrapeScreenshot: scrapeAppStoreScreenshots });
 }
 
 async function sendDiscordEmbed(threadId, appName, platform, oldVersion, info) {

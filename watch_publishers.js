@@ -8,6 +8,7 @@ import { pickChannelId, ensureThreadBelongsToChannel, reuseThreadByNameInThisCha
 import { pingRolesInThread } from "./helpers/discord_notifications.js";
 import { loadDiscordConfig } from "./helpers/discord_config.js";
 import { fetchTextWithRetry } from "./helpers/utils.js";
+import { getIOSInfo, getAndroidInfo } from "./helpers/app_info.js";
 
 const PUBLISHERS_SHEET_URL = process.env.PUBLISHERS_SHEET_URL; // CSV: platform,publisher_id
 const PUBLISHERS_STATE_FILE = "publishers_state.json";
@@ -50,63 +51,7 @@ async function loadPublishersFromSheet(url) {
   }
 }
 
-function formatDate(value) {
-  if (!value) return "Không rõ";
-  if (typeof value === "string") {
-    const iso = value.replace("Z", "");
-    const d1 = new Date(iso);
-    if (!isNaN(d1)) return d1.toLocaleDateString("vi-VN");
-    const d2 = new Date(value);
-    if (!isNaN(d2)) return d2.toLocaleDateString("vi-VN");
-    return value;
-  }
-  if (typeof value === "number") {
-    const d = new Date(value > 32503680000 ? value : value * 1000);
-    return d.toLocaleDateString("vi-VN");
-  }
-  if (value instanceof Date) return value.toLocaleDateString("vi-VN");
-  return String(value);
-}
-
-async function getIOSInfo(appId) {
-  try {
-    const { data } = await axios.get(`https://itunes.apple.com/lookup?id=${appId}`, { timeout: 15000 });
-    if (data.results && data.results.length) {
-      const a = data.results[0];
-      return {
-        name: a.trackName,
-        version: a.version || "Không rõ",
-        url: a.trackViewUrl,
-        icon: a.artworkUrl512,
-        releaseNotes: a.releaseNotes || "",
-        releaseDate: formatDate(a.currentVersionReleaseDate),
-        developer: a.artistName || "Không rõ",
-        developerUrl: a.artistViewUrl || a.trackViewUrl,
-        genres: (a.genres || []).join(", ") || a.primaryGenreName || "Không rõ",
-        screenshot: (a.screenshotUrls || [null])[0]
-      };
-    }
-    return {};
-  } catch { return {}; }
-}
-
-async function getAndroidInfo(pkg) {
-  try {
-    const r = await gplay.app({ appId: pkg });
-    return {
-      name: r.title,
-      version: r.version || "Không rõ",
-      url: r.url,
-      icon: r.icon,
-      releaseNotes: r.recentChanges || "",
-      releaseDate: formatDate(r.updated),
-      developer: r.developer || "Không rõ",
-      developerUrl: r.developerId ? `https://play.google.com/store/apps/dev?id=${r.developerId}` : r.url,
-      genres: r.genre || "Không rõ",
-      screenshot: (r.screenshots && r.screenshots[0]) || null
-    };
-  } catch { return {}; }
-}
+// formatDate, getIOSInfo, getAndroidInfo imported from helpers/app_info.js
 
 function buildAppUrl(platform, appId, infoUrl) {
   if (infoUrl) return infoUrl;
@@ -117,12 +62,12 @@ function buildAppUrl(platform, appId, infoUrl) {
 
 async function sendThreadBatch(threadId, embeds) {
   for (let i = 0; i < embeds.length; i += 10) {
-   const chunk = embeds.slice(i, i + 10);
-     try {
-     await sendMessageToThread(threadId, { embeds: chunk });
+    const chunk = embeds.slice(i, i + 10);
+    try {
+      await sendMessageToThread(threadId, { embeds: chunk });
     } catch (e) {
-     console.log("❌ Lỗi gửi batch vào thread:", e.message);
-     await new Promise(r => setTimeout(r, 1200));
+      console.log("❌ Lỗi gửi batch vào thread:", e.message);
+      await new Promise(r => setTimeout(r, 1200));
       try { await sendMessageToThread(threadId, { embeds: chunk }); } catch {}
     }
     if (i + 10 < embeds.length) await new Promise(r => setTimeout(r, 1200));
@@ -250,7 +195,7 @@ async function main() {
         if (!newIds.includes(item.id)) continue;
 
         const info = platform === "ios" ? await getIOSInfo(item.id) : await getAndroidInfo(item.id);
-        const safe = info || {};
+        const safe = info || {}; // getIOSInfo/getAndroidInfo now return null on error
         const appUrl = buildAppUrl(platform, item.id, safe.url);
 
         const embed = {
@@ -272,7 +217,7 @@ async function main() {
         embeds.push(embed);
       }
 
-    await sendThreadBatch(threadId, embeds);
+      await sendThreadBatch(threadId, embeds);
     } else if (firstForThisPublisher) {
       console.log("   Publisher mới → chỉ snapshot, không gửi embeds.");
     } else {

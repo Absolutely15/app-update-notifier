@@ -8,8 +8,9 @@
     "watch:publishers": "node watch_publishers.js"
   },
   "dependencies": {
-    "axios": "^1.7.4",
-    "papaparse": "^5.4.1",
-    "google-play-scraper": "10.0.1"
+    "axios": "^1.13.6",
+    "cheerio": "^1.2.0",
+    "google-play-scraper": "10.1.2",
+    "papaparse": "^5.5.3"
   }
 }
