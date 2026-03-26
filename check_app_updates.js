@@ -8,7 +8,7 @@ import { pickChannelId, ensureThreadBelongsToChannel, reuseThreadByNameInThisCha
 import { pingRolesInThread } from "./helpers/discord_notifications.js";
 import { loadDiscordConfig } from "./helpers/discord_config.js";
 import { fetchTextWithRetry } from "./helpers/utils.js";
-import { formatDate, getIOSInfo as _getIOSInfo, getAndroidInfo } from "./helpers/app_info.js";
+import { formatDate, getIOSInfo as _getIOSInfo, getAndroidInfo, isVaryVersion } from "./helpers/app_info.js";
 
 // ===== CẤU HÌNH =====
 const STATE_FILE = "last_versions.json";
@@ -311,9 +311,16 @@ async function main() {
     if (!info) { console.log("    ⚠️ Không lấy được thông tin."); continue; }
     const { threadId: androidThreadId, created: androidCreated } = await ensureAppThread("check_app_updates", "android", a.id, info.name || a.name_fallback, state);
     const old = getOldVersion(state[a.id]);
-    const first = !state[a.id] || !old;
-    const isDifferent = info.version !== old;
-    console.log(`    - Cũ: ${old || "N/A"} | Mới: ${info.version} | Khác nhau: ${isDifferent}`);
+
+    // Khi version là VARY → dùng updated timestamp để so sánh
+    const useUpdated = isVaryVersion(info.version) && info.updated;
+    const compareKey = useUpdated ? String(info.updated) : info.version;
+    // Nếu old state là VARY string (chưa chuyển sang timestamp) → coi như lần đầu
+    const oldIsVaryStr = old && isVaryVersion(old);
+    const first = !state[a.id] || !old || oldIsVaryStr;
+    const isDifferent = compareKey !== old;
+
+    console.log(`    - Cũ: ${old || "N/A"} | Mới: ${compareKey}${useUpdated ? " (updated timestamp)" : ""} | Khác nhau: ${isDifferent}`);
     if (isDifferent) {
       if (!first) {
         if (!androidCreated){
@@ -321,7 +328,7 @@ async function main() {
         }
          await sendDiscordEmbed(androidThreadId, info.name || a.name_fallback, "Android", old, info);
       }
-      state[a.id] = { ...(state[a.id] || {}), version: info.version };
+      state[a.id] = { ...(state[a.id] || {}), version: compareKey };
       changed = true;
     }
   }

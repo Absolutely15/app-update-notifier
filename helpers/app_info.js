@@ -57,12 +57,18 @@ export async function getIOSInfo(appId, { scrapeScreenshot } = {}) {
   }
 }
 
+export function isVaryVersion(v) {
+  return /^varies?\b/i.test(v) || /^vary$/i.test(v);
+}
+
 export async function getAndroidInfo(pkg) {
   try {
     const r = await gplay.app({ appId: pkg }); // mặc định US/en
+    const version = r.version || "Không rõ";
     return {
       name: r.title,
-      version: r.version || "Không rõ",
+      version,
+      updated: r.updated, // raw timestamp – dùng làm fallback khi version là VARY
       url: r.url,
       icon: r.icon,
       releaseNotes: r.recentChanges || "",
