@@ -2,7 +2,7 @@ name: Check App Updates
 
 on:
   schedule:
-    - cron: "0 1 * * *" # chạy 09:00 hàng ngày (Asia/Ho_Chi_Minh)
+    - cron: "0 0 * * *" # chạy 07:00 hàng ngày (Asia/Ho_Chi_Minh)
   workflow_dispatch: # cho phép bấm nút "Run workflow" thủ công
 
 jobs:
