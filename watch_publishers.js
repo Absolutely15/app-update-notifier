@@ -68,7 +68,7 @@ async function sendThreadBatch(threadId, embeds) {
     } catch (e) {
       console.log("❌ Lỗi gửi batch vào thread:", e.message);
       await new Promise(r => setTimeout(r, 1200));
-      try { await sendMessageToThread(threadId, { embeds: chunk }); } catch {}
+      try { await sendMessageToThread(threadId, { embeds: chunk }); } catch { }
     }
     if (i + 10 < embeds.length) await new Promise(r => setTimeout(r, 1200));
   }
@@ -94,7 +94,7 @@ async function ensurePublisherThread(platform, publisherId, publisherName, state
       }
     } else {
       // not_found / wrong_parent / not_thread
-        console.log(`↪️ Thread cũ không hợp lệ (${check.reason}) → tạo mới trong channel đúng.`);
+      console.log(`↪️ Thread cũ không hợp lệ (${check.reason}) → tạo mới trong channel đúng.`);
     }
   }
 
@@ -177,9 +177,10 @@ async function main() {
 
     console.log(`👤 Publisher: ${publisherName} (${key}) — đang kiểm tra... | First=${firstForThisPublisher}`);
     const currentIds = new Set(current.map(x => x.id));
-    const prevIds = new Set((state[key]?.app_ids || []));
+    // notified_ids: tích lũy tất cả app đã từng thấy, tránh gửi lại khi API trả thiếu rồi xuất hiện lại
+    const notifiedIds = new Set((state[key]?.notified_ids || state[key]?.app_ids || []));
 
-    const newIds = [...currentIds].filter(id => !prevIds.has(id));
+    const newIds = [...currentIds].filter(id => !notifiedIds.has(id));
 
     if (!firstForThisPublisher && newIds.length) {
       hasNew = true;
@@ -225,10 +226,13 @@ async function main() {
     }
 
     // Luôn cập nhật snapshot state
+    // notified_ids: merge cũ + mới (append-only, không bao giờ xoá) → tránh noti lại app cũ
+    const mergedNotified = new Set([...notifiedIds, ...currentIds]);
     state[key] = {
       ...(state[key] || {}),
       publisher_name: publisherName,
       app_ids: [...currentIds].sort(),
+      notified_ids: [...mergedNotified].sort(),
       checked_at: new Date().toISOString().slice(0, 19).replace("T", " ")
     };
   }
