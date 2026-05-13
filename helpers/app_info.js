@@ -21,6 +21,23 @@ export function formatDate(value) {
   return String(value);
 }
 
+export function toTimestampMs(value) {
+  if (!value) return null;
+  if (typeof value === "number") {
+    const ms = value > 32503680000 ? value : value * 1000;
+    return Number.isFinite(ms) ? ms : null;
+  }
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isFinite(ms) ? ms : null;
+  }
+  if (typeof value === "string") {
+    const ms = Date.parse(value);
+    return Number.isFinite(ms) ? ms : null;
+  }
+  return null;
+}
+
 export async function getIOSInfo(appId, { scrapeScreenshot } = {}) {
   try {
     const { data } = await axios.get(`https://itunes.apple.com/lookup?id=${appId}`, { timeout: 15000 });
@@ -44,6 +61,9 @@ export async function getIOSInfo(appId, { scrapeScreenshot } = {}) {
         icon: a.artworkUrl512,
         releaseNotes: a.releaseNotes || "",
         releaseDate: formatDate(a.currentVersionReleaseDate),
+        originalReleaseDate: formatDate(a.releaseDate),
+        currentVersionReleaseTimestamp: toTimestampMs(a.currentVersionReleaseDate),
+        releaseTimestamp: toTimestampMs(a.releaseDate),
         developer: a.artistName || "Không rõ",
         developerUrl: a.artistViewUrl || a.trackViewUrl,
         genres: (a.genres || []).join(", ") || a.primaryGenreName || "Không rõ",
@@ -65,10 +85,15 @@ export async function getAndroidInfo(pkg) {
   try {
     const r = await gplay.app({ appId: pkg }); // mặc định US/en
     const version = r.version || "Không rõ";
+    const releaseTimestamp = toTimestampMs(r.released);
+    const updatedTimestamp = toTimestampMs(r.updated);
     return {
       name: r.title,
       version,
+      originalReleaseDate: formatDate(r.released),
+      releaseTimestamp,
       updated: r.updated, // raw timestamp – dùng làm fallback khi version là VARY
+      updatedTimestamp,
       url: r.url,
       icon: r.icon,
       releaseNotes: r.recentChanges || "",

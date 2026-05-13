@@ -8,10 +8,39 @@ import { pickChannelId, ensureThreadBelongsToChannel, reuseThreadByNameInThisCha
 import { pingRolesInThread } from "./helpers/discord_notifications.js";
 import { loadDiscordConfig } from "./helpers/discord_config.js";
 import { fetchTextWithRetry } from "./helpers/utils.js";
-import { getIOSInfo, getAndroidInfo } from "./helpers/app_info.js";
+import { getIOSInfo, getAndroidInfo, toTimestampMs } from "./helpers/app_info.js";
 
 const PUBLISHERS_SHEET_URL = process.env.PUBLISHERS_SHEET_URL; // CSV: platform,publisher_id
 const PUBLISHERS_STATE_FILE = "publishers_state.json";
+const NEW_APP_MAX_AGE_DAYS = 14;
+const NEW_APP_MAX_AGE_MS = NEW_APP_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+
+function getPublisherRecencyTimestamp(platform, info) {
+  if (!info) return null;
+  if (platform === "ios") {
+    return info.releaseTimestamp
+      || info.currentVersionReleaseTimestamp
+      || toTimestampMs(info.releaseDate);
+  }
+  return info.releaseTimestamp
+    || info.updatedTimestamp
+    || toTimestampMs(info.updated)
+    || toTimestampMs(info.releaseDate);
+}
+
+function getPublisherRecency(platform, info, now = Date.now()) {
+  const timestamp = getPublisherRecencyTimestamp(platform, info);
+  if (!timestamp) return { recent: false, timestamp: null, ageDays: null };
+
+  const ageMs = now - timestamp;
+  const oneDayMs = 24 * 60 * 60 * 1000;
+  const recent = ageMs <= NEW_APP_MAX_AGE_MS && ageMs >= -oneDayMs;
+  return {
+    recent,
+    timestamp,
+    ageDays: Math.floor(Math.max(ageMs, 0) / oneDayMs)
+  };
+}
 
 function loadState() {
   try {
@@ -183,20 +212,29 @@ async function main() {
     const newIds = [...currentIds].filter(id => !notifiedIds.has(id));
 
     if (!firstForThisPublisher && newIds.length) {
-      hasNew = true;
       console.log(`   🎯 Có ${newIds.length} app mới: ${newIds.slice(0, 5).join(", ")}...`);
-
-      if (!created) {
-        await pingRolesInThread(threadId);
-      }
 
       // Gom embeds
       const embeds = [];
+      let skippedOld = 0;
+      let skippedUnknownDate = 0;
       for (const item of current) {
         if (!newIds.includes(item.id)) continue;
 
         const info = platform === "ios" ? await getIOSInfo(item.id) : await getAndroidInfo(item.id);
         const safe = info || {}; // getIOSInfo/getAndroidInfo now return null on error
+        const recency = getPublisherRecency(platform, safe);
+        if (!recency.recent) {
+          if (recency.timestamp) {
+            skippedOld++;
+            console.log(`   ⏭️ Bỏ qua app cũ ${item.name}: ${recency.ageDays} ngày > ${NEW_APP_MAX_AGE_DAYS} ngày`);
+          } else {
+            skippedUnknownDate++;
+            console.log(`   ⏭️ Bỏ qua ${item.name}: không có ngày release/update để xác định recent`);
+          }
+          continue;
+        }
+
         const appUrl = buildAppUrl(platform, item.id, safe.url);
 
         const embed = {
@@ -218,7 +256,15 @@ async function main() {
         embeds.push(embed);
       }
 
-      await sendThreadBatch(threadId, embeds);
+      if (embeds.length) {
+        hasNew = true;
+        if (!created) {
+          await pingRolesInThread(threadId);
+        }
+        await sendThreadBatch(threadId, embeds);
+      } else {
+        console.log(`   ✅ Không có app đủ mới để gửi (${skippedOld} cũ, ${skippedUnknownDate} thiếu ngày).`);
+      }
     } else if (firstForThisPublisher) {
       console.log("   Publisher mới → chỉ snapshot, không gửi embeds.");
     } else {
