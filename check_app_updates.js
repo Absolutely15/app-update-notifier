@@ -58,14 +58,14 @@ async function ensureAppThread(taskName, platform, appId, appDisplayName, state)
       console.log(`↪️ Thread cũ không hợp lệ (${check.reason}) → tạo mới trong channel đúng.`);
     }
   }
-  
+
   const reused = await reuseThreadByNameInThisChannel(channelId, threadName);
   if (reused) {
     state[appId] = { ...(state[appId] || {}), thread_id: reused };
     console.log(`♻️ Dùng lại thread theo tên trong channel: ${threadName} (${reused})`);
     return { threadId: reused, created };
   }
-  
+
   const threadId = await createThreadInTextChannel(channelId, threadName, 10080);
   //await pingRolesInThread(threadId);
   created = true;
@@ -140,20 +140,34 @@ function normalizeUrl(u, base) {
   }
 }
 
-async function scrapeAppStoreScreenshots(appId, limit = 1) {
+async function scrapeAppStoreScreenshots(appId, limit = 1, attempt = 0) {
+  // Polite delay between requests: 1.5–2.5s jitter to avoid rate limiting
+  await new Promise(r => setTimeout(r, 1500 + Math.random() * 1000));
+
   const pageUrl = `https://apps.apple.com/app/id${appId}`;
 
-  const res = await axios.get(pageUrl, {
-    timeout: 20000,
-    maxRedirects: 5,
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
-      "Accept-Language": "en-US,en;q=0.9",
-      "Accept":
-        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    },
-  });
+  let res;
+  try {
+    res = await axios.get(pageUrl, {
+      timeout: 20000,
+      maxRedirects: 5,
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept":
+          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      },
+    });
+  } catch (e) {
+    if (e?.response?.status === 429 && attempt < 3) {
+      const wait = (attempt + 1) * 5000; // 5s, 10s, 15s
+      console.log(`⏳ 429 on app ${appId}, retry in ${wait / 1000}s (attempt ${attempt + 1}/3)...`);
+      await new Promise(r => setTimeout(r, wait));
+      return scrapeAppStoreScreenshots(appId, limit, attempt + 1);
+    }
+    throw e;
+  }
 
   const html = res.data;
   const $ = cheerio.load(html);
@@ -236,9 +250,9 @@ async function scrapeAppStoreScreenshots(appId, limit = 1) {
   return out;
 }
 
-// Wrapper: getIOSInfo with screenshot scraping
-async function getIOSInfo(appId) {
-  return _getIOSInfo(appId, { scrapeScreenshot: scrapeAppStoreScreenshots });
+// Wrapper: getIOSInfo — screenshot scraping is opt-in to avoid 429s
+async function getIOSInfo(appId, { withScreenshot = false } = {}) {
+  return _getIOSInfo(appId, { scrapeScreenshot: withScreenshot ? scrapeAppStoreScreenshots : null });
 }
 
 async function sendDiscordEmbed(threadId, appName, platform, oldVersion, info) {
@@ -285,7 +299,7 @@ async function main() {
   console.log("📱 Kiểm tra iOS...");
   for (const a of apps.ios) {
     console.log(`   🔍 ${a.name_fallback}...`);
-    const info = await getIOSInfo(a.id);
+    const info = await getIOSInfo(a.id); // no screenshot yet
     if (!info) { console.log("    ⚠️ Không lấy được thông tin."); continue; }
     const { threadId: iosThreadId, created: iosCreated } = await ensureAppThread("check_app_updates", "ios", a.id, info.name || a.name_fallback, state);
     const old = getOldVersion(state[a.id]);
@@ -294,7 +308,14 @@ async function main() {
     console.log(`    - Cũ: ${old || "N/A"} | Mới: ${info.version} | Khác nhau: ${isDifferent}`);
     if (isDifferent) {
       if (!first) {
-        if (!iosCreated){
+        // Only scrape screenshot when we're actually going to post an update
+        try {
+          const screenshots = await getIOSInfo(a.id, { withScreenshot: true });
+          if (screenshots?.screenshot) info.screenshot = screenshots.screenshot;
+        } catch (e) {
+          console.log(`⚠️ Lỗi scrape screenshot app ${a.id}: ${e.message}`);
+        }
+        if (!iosCreated) {
           await pingRolesInThread(iosThreadId);
         }
         await sendDiscordEmbed(iosThreadId, info.name || a.name_fallback, "iOS", old, info);
@@ -323,10 +344,10 @@ async function main() {
     console.log(`    - Cũ: ${old || "N/A"} | Mới: ${compareKey}${useUpdated ? " (updated timestamp)" : ""} | Khác nhau: ${isDifferent}`);
     if (isDifferent) {
       if (!first) {
-        if (!androidCreated){
+        if (!androidCreated) {
           await pingRolesInThread(androidThreadId);
         }
-         await sendDiscordEmbed(androidThreadId, info.name || a.name_fallback, "Android", old, info);
+        await sendDiscordEmbed(androidThreadId, info.name || a.name_fallback, "Android", old, info);
       }
       state[a.id] = { ...(state[a.id] || {}), version: compareKey };
       changed = true;
